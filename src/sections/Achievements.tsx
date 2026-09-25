@@ -1,38 +1,51 @@
 import { useRef } from 'react'
-import { ArrowUpRight } from 'lucide-react'
+import { ArrowUpRight, Award, Medal, Trophy } from 'lucide-react'
 import { Aurora } from '../components/Aurora'
+import { BrandIcon } from '../components/BrandIcon'
+import { LogoMark } from '../components/LogoMark'
 import { Notes } from '../components/Notes'
 import { SectionHeader } from '../components/SectionHeader'
-import { EASE, MQ, ScrollTrigger, gsap, useGSAP } from '../lib/gsap'
+import { EASE, MQ, ScrollTrigger, gsap, useLazyGSAP } from '../lib/gsap'
 import { sectionStops } from '../lib/stepper'
 import { achievements, highlights } from '../data/resume'
 import type { Achievement, Highlight } from '../data/types'
 import { cn } from '../lib/cn'
 
-function AchievementCard({ item }: { item: Achievement }) {
+const rankIcon = { first: Trophy, second: Medal, finalist: Award }
+
+/** Split the detail sentence so the project's name can be emphasised inside it. */
+function Detail({ text, project }: { text: string; project: string }) {
+  const at = text.indexOf(project)
+  if (at < 0) return <>{text}</>
   return (
-    <div data-ach className="card flex min-h-[300px] flex-col p-5 sm:p-6 lg:col-span-5 lg:min-h-[clamp(200px,27svh,300px)] short:p-5">
-      <span className="mono-label self-start rounded-full bg-accent px-2.5 py-[5px] text-[10px] font-medium text-[var(--on-accent)] shadow-[0_0_18px_-4px_rgb(var(--accent-rgb)/0.8)]">
-        “{item.badge}”
-      </span>
-      <blockquote className="mt-6 font-serif text-[1.18rem] leading-[1.42] text-soft short:mt-4 short:text-[1.08rem] short:leading-[1.36]">
-        “{item.lead} <em className="text-muted">{item.rest}”</em>
-      </blockquote>
-      <div className="mt-auto flex items-center gap-3 pt-8 short:pt-4">
-        <span className="relative grid size-[30px] shrink-0 place-items-center overflow-hidden rounded-full font-mono text-[8px] font-medium text-white ring-1 ring-white/15">
-          <span
-            aria-hidden
-            className="absolute inset-0"
-            style={{ background: 'var(--mono-grad)' }}
-          />
-          <span className="relative">{item.monogram}</span>
-        </span>
-        <span>
-          <span className="mono-label block text-[10.5px] text-fg">{item.event}</span>
-          <span className="mono-label mt-1 block text-[10px] text-muted">{item.meta}</span>
-        </span>
+    <>
+      {text.slice(0, at)}
+      <strong className="font-semibold text-fg">{project}</strong>
+      {text.slice(at + project.length)}
+    </>
+  )
+}
+
+function AchievementCard({ item }: { item: Achievement }) {
+  const Icon = rankIcon[item.rank]
+  return (
+    <article data-ach className="card flex min-h-[260px] flex-col p-6 lg:col-span-5 lg:min-h-[clamp(200px,27svh,280px)] short:p-5">
+      <div className="flex items-center gap-3.5">
+        <LogoMark logo={item.logo} monogram={item.monogram} />
+        <div className="min-w-0">
+          <p className="text-[13.5px] leading-snug font-medium text-fg">{item.org}</p>
+          <p className="mt-0.5 text-[12.5px] text-muted">{item.year}</p>
+        </div>
       </div>
-    </div>
+      <p className="mt-5 flex items-center gap-2 text-[13px] font-semibold tracking-[0.02em] text-ice short:mt-4">
+        <Icon size={15} strokeWidth={2} aria-hidden />
+        {item.result}
+      </p>
+      <h3 className="mt-1.5 font-serif text-[1.45rem] leading-[1.15] text-fg short:text-[1.3rem]">{item.event}</h3>
+      <p className="mt-3 text-[14.5px] leading-[1.6] text-soft short:mt-2 short:text-[13.5px] short:leading-[1.5]">
+        <Detail text={item.detail} project={item.project} />
+      </p>
+    </article>
   )
 }
 
@@ -42,26 +55,32 @@ function HighlightTile({ item, seed, className }: { item: Highlight; seed: numbe
     <div data-ach className={cn('lg:col-span-4', className)}>
       <Tag
         {...(item.href ? { href: item.href, target: '_blank', rel: 'noreferrer' } : {})}
-        className="group relative flex h-full min-h-[280px] flex-col justify-between overflow-hidden rounded-[8px] p-5 ring-1 ring-white/10 sm:p-6 lg:min-h-[clamp(190px,25svh,280px)] short:p-5"
+        className="group relative flex h-full min-h-[260px] flex-col justify-between overflow-hidden rounded-[8px] p-6 ring-1 ring-white/10 lg:min-h-[clamp(190px,25svh,280px)] short:p-5"
       >
         <div data-tile-art className="absolute -inset-y-[12%] inset-x-0">
           <Aurora preset={item.preset} seed={seed} />
         </div>
-        <div aria-hidden className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/20 to-black/70" />
-        <span className="mono-label relative self-start rounded-full bg-white/10 px-2.5 py-[5px] text-[10px] text-white ring-1 ring-white/20 backdrop-blur-md">
-          {item.kicker}
-        </span>
+        {/* a deep shade under the type: the sky stays visible, the words stay readable */}
+        <div aria-hidden className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/35 to-black/80" />
+        <div className="relative flex items-center gap-3">
+          {item.logo && <LogoMark logo={item.logo} monogram="" className="size-11" />}
+          <span className="text-[13px] leading-snug font-medium text-balance text-white">{item.kicker}</span>
+        </div>
         <div className="relative">
-          <p className="text-lift font-serif text-[1.65rem] leading-[1.08] text-balance text-white">{item.title}</p>
-          <p className="mono-label mt-3 flex items-center gap-1.5 text-[10px] text-white/75">
-            {item.body}
-            {item.href && (
-              <ArrowUpRight
-                size={13}
-                className="transition-transform duration-700 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
-              />
-            )}
-          </p>
+          <p className="text-lift font-serif text-[1.6rem] leading-[1.1] text-balance text-white short:text-[1.4rem]">{item.title}</p>
+          {item.body && <p className="mt-2.5 text-[13.5px] leading-snug text-white/85">{item.body}</p>}
+          {item.cta && (
+            // reads as what it is: a link out to the post
+            <span className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full bg-black/60 py-1.5 pr-3 pl-2 text-[13px] font-medium whitespace-nowrap lg:gap-1.5 lg:text-[12.5px] xl:gap-2 xl:text-[13px] text-white ring-1 ring-white/20 transition-colors duration-500 group-hover:bg-black/75">
+              {item.cta.brand && (
+                <span className="grid size-6 shrink-0 place-items-center rounded-full bg-black text-white ring-1 ring-white/25">
+                  <BrandIcon slug={item.cta.brand} className="size-3" />
+                </span>
+              )}
+              {item.cta.label}
+              <ArrowUpRight size={14} className="shrink-0 transition-transform duration-700 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+            </span>
+          )}
         </div>
       </Tag>
     </div>
@@ -72,7 +91,7 @@ export function Achievements() {
   const root = useRef<HTMLElement>(null)
   const [first, second, third, fourth] = achievements
 
-  useGSAP(
+  useLazyGSAP(
     () => {
       const q = gsap.utils.selector(root)
       const items = q('[data-ach]')
@@ -123,7 +142,7 @@ export function Achievements() {
       id="achievements"
       ref={root}
       aria-labelledby="achievements-title"
-      className="relative border-b border-line px-4 py-24 sm:px-8 md:py-32 lg:flex lg:min-h-[100svh] lg:flex-col lg:justify-center lg:px-12 lg:py-[clamp(2.25rem,5svh,6rem)]"
+      className="relative border-b border-line px-4 py-24 sm:px-8 md:py-32 lg:flex lg:min-h-[100svh] lg:flex-col lg:justify-center lg:px-12 lg:pt-[max(4.5rem,6svh)] lg:pb-[clamp(1.5rem,5svh,6rem)]"
     >
       <Notes
         items={[
@@ -134,14 +153,12 @@ export function Achievements() {
       <SectionHeader
         id="achievements-title"
         label="Achievements"
-        title={
-          <>
-            Wins & recognition <br />
-            earned along the way
-          </>
-        }
+        // two lines ("Wins & recognition / earned along the way"); one on short screens
+        titleClassName="mx-auto max-w-[8em] short:max-w-none"
+        className="tight:[zoom:0.9] tighter:[zoom:0.82]"
+        title="Wins & recognition earned along the way"
       />
-      <div className="mx-auto mt-14 grid w-full max-w-[1020px] gap-3 md:grid-cols-2 lg:mt-[clamp(1.25rem,3.5svh,3.5rem)] lg:grid-cols-14 xl:max-w-[1180px] 3xl:max-w-[1240px]">
+      <div className="mx-auto mt-14 grid w-full max-w-[1020px] gap-3 md:grid-cols-2 lg:mt-[clamp(1.25rem,3.5svh,3.5rem)] lg:grid-cols-14 xl:max-w-[1180px] 3xl:max-w-[1240px] tight:[zoom:0.9] tighter:[zoom:0.82]">
         <HighlightTile item={highlights[0]} seed={3} />
         {first && <AchievementCard item={first} />}
         {second && <AchievementCard item={second} />}

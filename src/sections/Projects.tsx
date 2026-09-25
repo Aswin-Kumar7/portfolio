@@ -1,19 +1,22 @@
 import { useRef } from 'react'
 import { ArrowRightToLine, ArrowUpRight } from 'lucide-react'
 import { Aurora } from '../components/Aurora'
+import { VeiledImage } from '../components/VeiledImage'
 import { ButtonLink, ButtonPair, IconLink } from '../components/Button'
 import { ScriptLabel, SplitHeading } from '../components/SplitHeading'
-import { MQ, gsap, useGSAP } from '../lib/gsap'
-import { addStops } from '../lib/stepper'
+import { MQ, gsap, useLazyGSAP } from '../lib/gsap'
+import { pinRange } from '../lib/stepper'
 import { profile, projects } from '../data/resume'
 import type { Project } from '../data/types'
 
 function ProjectCard({ project, index }: { project: Project; index: number }) {
   const backdrop = useRef<HTMLCanvasElement>(null)
   const label = `${project.title} [${project.year}]`
+  const { image } = project
+  const base = image && `/assets/projects/${image.name}`
 
   return (
-    <article data-card className="w-full max-w-[880px] shrink-0 lg:w-[min(73.5vh,960px)] lg:max-w-none">
+    <article data-card className="w-full max-w-[880px] shrink-0 lg:w-[min(73.5vh,960px,calc((100svh-36rem)*1.75))] lg:max-w-none short:w-[min(68vh,960px)] tight:w-[min(64vh,960px)]">
       <a
         href={project.href}
         target="_blank"
@@ -29,25 +32,42 @@ function ProjectCard({ project, index }: { project: Project; index: number }) {
           style={{ clipPath: 'inset(0% 0% 0% 0% round 8px)' }}
         >
           <div data-cover-art className="absolute inset-0">
-            {/* Blurred copy of the cover, painted by the WebGL engine every frame. */}
-            <canvas
-              ref={backdrop}
-              aria-hidden
-              className="absolute inset-0 h-full w-full scale-[1.3] object-cover blur-[18px] brightness-[0.85] saturate-[1.15] transition-transform duration-[1.6s] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-[1.36]"
-            />
-            <div className="absolute inset-0 bg-gradient-to-b from-black/0 via-black/5 to-black/25" />
-            <div className="absolute top-1/2 left-1/2 h-[62%] w-[74%] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[5px] shadow-[0_30px_70px_-24px_rgba(0,0,0,0.85)] ring-1 ring-white/15 transition-transform duration-[1.2s] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-[1.03] sm:h-[64%] sm:w-[53%]">
-              <Aurora preset={project.cover} seed={index + 1} mirror={backdrop} />
-              <div className="absolute inset-0 grid place-items-center px-4 text-center">
-                <span className="font-serif text-[clamp(1.05rem,0.8rem+1vw,1.45rem)] text-white [text-shadow:0_2px_20px_rgba(0,0,0,0.55)]">
-                  {label}
-                </span>
+            {/* Blurred copy of the cover behind its frame: the image's tiny blur copy, or the nebula (the sky engine mirrors it) */}
+            {image ? (
+              <div aria-hidden className="absolute inset-0 scale-[1.3] transition-transform duration-[1.6s] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-[1.36]">
+                <VeiledImage base={`${base}-blur`} alt="" className="h-full w-full object-cover blur-[18px] brightness-[0.45] saturate-[1.2]" />
               </div>
-            </div>
+            ) : (
+              <canvas
+                ref={backdrop}
+                aria-hidden
+                className="absolute inset-0 h-full w-full scale-[1.3] object-cover blur-[18px] brightness-[0.85] saturate-[1.15] transition-transform duration-[1.6s] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-[1.36]"
+              />
+            )}
+            <div className="absolute inset-0 bg-gradient-to-b from-black/0 via-black/5 to-black/25" />
+            {image ? (
+              // a photo or screenshot in a frame of its own shape (whole picture, nothing cropped);
+              // on phones a wide screenshot may be trimmed a little at the sides
+              <div
+                className="absolute top-1/2 left-1/2 h-[76%] max-w-[88%] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[6px] bg-panel shadow-[0_30px_70px_-24px_rgba(0,0,0,0.9)] ring-1 ring-white/15 transition-transform duration-[1.2s] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-[1.03] sm:h-[78%] sm:max-w-[80%]"
+                style={{ aspectRatio: image.aspect }}
+              >
+                <VeiledImage base={base!} widths={image.widths} alt={image.alt} className="absolute inset-0 h-full w-full object-cover" />
+              </div>
+            ) : (
+              <div className="absolute top-1/2 left-1/2 h-[62%] w-[74%] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[5px] shadow-[0_30px_70px_-24px_rgba(0,0,0,0.85)] ring-1 ring-white/15 transition-transform duration-[1.2s] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-[1.03] sm:h-[64%] sm:w-[53%]">
+                <Aurora preset={project.cover!} seed={index + 1} mirror={backdrop} />
+                <div className="absolute inset-0 grid place-items-center px-4 text-center">
+                  <span className="font-serif text-[clamp(1.05rem,0.8rem+1vw,1.45rem)] text-white [text-shadow:0_2px_20px_rgba(0,0,0,0.55)]">
+                    {label}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {project.badge && (
-            <span className="mono-label absolute top-3 left-3 rounded-full bg-black/30 px-3 py-1.5 text-[10px] text-white/90 ring-1 ring-white/15 backdrop-blur-md sm:top-4 sm:left-4">
+            <span className="absolute top-3 left-3 rounded-[6px] bg-black/70 px-3 py-1.5 text-[12px] font-medium text-white ring-1 ring-white/15 sm:top-4 sm:left-4">
               {project.badge}
             </span>
           )}
@@ -56,19 +76,18 @@ function ProjectCard({ project, index }: { project: Project; index: number }) {
           </span>
         </div>
 
-        <div data-info className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
-          <h3 className="font-serif text-[1.4rem] leading-none text-fg">{label}</h3>
-          <p className="mono-label text-[10.5px] text-soft">[ {project.tags.join(' , ')} ]</p>
+        <div data-info className="mt-5 flex items-baseline justify-between gap-6 tighter:mt-4">
+          <h3 className="font-serif text-[clamp(1.55rem,1.15rem+0.8vw,2rem)] leading-[1.05] text-fg">{project.title}</h3>
+          <span className="mono-label shrink-0 text-[11px] text-muted">{project.year}</span>
         </div>
-        <p data-info className="mt-3 max-w-[64ch] text-[14px] leading-[1.65] text-muted">
-          {project.summary}
-        </p>
+        <p data-info className="mono-label mt-2.5 text-[11px] tracking-[0.08em] text-ice">{project.tags.join(' · ')}</p>
+        <p data-info className="mt-3 max-w-[62ch] text-[15px] leading-[1.65] text-soft tight:text-[14px] tight:leading-[1.55] tighter:text-[13.5px] tighter:leading-[1.5]">{project.summary}</p>
         <span
           data-info
-          className="mono-label mt-3 inline-flex items-center gap-1.5 text-[10.5px] text-ice transition-colors duration-500 group-hover:text-white"
+          className="mt-4 inline-flex items-center gap-2 border-b border-white/15 pb-1 text-[13.5px] font-medium text-fg transition-colors duration-500 group-hover:border-ice group-hover:text-ice"
         >
           {project.hrefLabel}
-          <ArrowUpRight size={13} className="transition-transform duration-700 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+          <ArrowUpRight size={15} className="transition-transform duration-700 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
         </span>
       </a>
     </article>
@@ -79,7 +98,7 @@ export function Projects() {
   const root = useRef<HTMLElement>(null)
   const repos = `${profile.github}?tab=repositories`
 
-  useGSAP(
+  useLazyGSAP(
     () => {
       const q = gsap.utils.selector(root)
       const cards = q('[data-card]')
@@ -99,18 +118,19 @@ export function Projects() {
       // Desktop: the stage pins and the track travels sideways.
       mm.add(MQ.desktop, () => {
         const stage = q('[data-stage]')[0]!
-        const track = q('[data-track]')[0]!
+        const rail = q('[data-rail]')[0]!
         const counter = q('[data-counter]')[0]
         const bar = q('[data-bar]')[0]
-        const distance = () => Math.max(0, track.scrollWidth - stage.clientWidth)
+        const distance = () => Math.max(0, rail.scrollWidth - stage.clientWidth)
 
-        const travel = gsap.to(track, {
+        const travel = gsap.to(rail, {
           x: () => -distance(),
           ease: 'none',
           scrollTrigger: {
             trigger: root.current,
             start: 'top top',
-            end: () => `+=${distance()}`,
+            // the gallery slides ~2.6px per px scrolled: six projects shouldn't take forty wheel notches
+            end: () => `+=${distance() * 0.38}`,
             pin: true,
             scrub: 1.2,
             invalidateOnRefresh: true,
@@ -126,14 +146,8 @@ export function Projects() {
           else revealCover(card, { trigger: card, containerAnimation: travel, start: 'left 100%', end: 'left 42%' })
         })
 
-        // one stop per project: each gesture brings the next card to where the first one sits
-        return addStops(() => {
-          const st = travel.scrollTrigger
-          if (!st) return []
-          const d = distance()
-          const lead = (cards[0] as HTMLElement).offsetLeft
-          return [st.start, ...cards.map((c) => st.start + Math.min(d, (c as HTMLElement).offsetLeft - lead)), st.end]
-        })
+        // scroll-driven: the wheel slides the gallery; the page snaps only at its ends
+        return pinRange(travel.scrollTrigger)
       })
 
       // Phones & tablets: a vertical stack, each cover opening as it arrives.
@@ -148,12 +162,12 @@ export function Projects() {
 
   return (
     <section id="projects" ref={root} aria-labelledby="projects-title" className="relative border-b border-line">
-      <div data-stage className="flex flex-col overflow-hidden py-24 md:py-32 lg:h-[100svh] lg:max-h-[1400px] lg:justify-center lg:py-0">
-        <div className="flex flex-col gap-8 px-5 sm:px-8 md:flex-row md:items-end md:justify-between lg:px-12">
+      <div data-stage className="flex flex-col overflow-hidden py-24 md:py-32 lg:h-[100svh] lg:max-h-[1400px] lg:justify-center lg:pt-[4.5rem] lg:pb-4 tighter:pb-2">
+        <div className="flex flex-col gap-8 px-5 sm:px-8 md:flex-row md:items-end md:justify-between lg:px-12 tighter:[zoom:0.85]">
           <div>
-            <ScriptLabel>Selected projects</ScriptLabel>
-            <SplitHeading id="projects-title" className="heading mt-2 max-w-[11.5em]">
-              Work that speaks louder than any words
+            <ScriptLabel>Projects</ScriptLabel>
+            <SplitHeading id="projects-title" className="heading mt-2 max-w-[11.5em] short:max-w-none">
+              Products I’ve built and shipped
             </SplitHeading>
           </div>
           <div className="flex items-end gap-8">
@@ -175,8 +189,8 @@ export function Projects() {
         </div>
 
         <div
-          data-track
-          className="mt-14 flex flex-col items-center gap-16 px-5 sm:px-8 md:mt-16 lg:mt-10 lg:w-max lg:flex-row lg:items-start lg:gap-[4.5vw] lg:pr-[12vw] lg:pl-12"
+          data-rail
+          className="mt-14 flex flex-col items-center gap-16 px-5 sm:px-8 md:mt-16 lg:mt-10 lg:w-max short:mt-6 tighter:mt-4 lg:flex-row lg:items-start lg:gap-[4.5vw] lg:pr-[12vw] lg:pl-12"
         >
           {projects.map((p, i) => (
             <ProjectCard key={p.slug} project={p} index={i} />
@@ -185,6 +199,8 @@ export function Projects() {
             href={repos}
             target="_blank"
             rel="noreferrer"
+            data-track="projects_view_all"
+            data-track-label="gallery-end"
             className="group hidden aspect-[0.9] shrink-0 flex-col justify-between rounded-[8px] border border-white/10 p-7 transition-colors duration-700 hover:border-accent/50 lg:flex lg:h-[min(42vh,548px)]"
           >
             <span className="mono-label text-[10.5px] text-muted">And more on GitHub</span>
@@ -201,7 +217,7 @@ export function Projects() {
           </a>
         </div>
 
-        <div className="mx-12 mt-10 hidden h-px bg-white/[0.08] lg:block">
+        <div className="mx-12 mt-10 hidden h-px bg-white/[0.08] lg:block short:mt-6 tighter:mt-4">
           <div data-bar className="h-full origin-left scale-x-0 bg-gradient-to-r from-accent to-ice" />
         </div>
       </div>

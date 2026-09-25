@@ -1,24 +1,6 @@
-import {
-  ClampToEdgeWrapping,
-  HalfFloatType,
-  LinearFilter,
-  LinearMipmapLinearFilter,
-  Matrix3,
-  Mesh,
-  NoBlending,
-  OrthographicCamera,
-  PlaneGeometry,
-  RepeatWrapping,
-  Scene,
-  ShaderMaterial,
-  UnsignedByteType,
-  Vector2,
-  Vector3,
-  WebGLRenderTarget,
-  WebGLRenderer,
-} from 'three'
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { gsap } from '../lib/gsap'
+import { progress } from '../lib/boot'
+import { GL, type Program, type Target } from './gl'
 import type { Framing, SceneControls } from './state'
 
 /*
@@ -35,8 +17,12 @@ import type { Framing, SceneControls } from './state'
  *                      shear, orbiting hot spots, photon ring, lensed sky and anti-aliased
  *                      stars. The shadow edge and photon ring — where one ray per pixel
  *                      aliases — get two extra rays across the ring. HDR output.
- *   3. bloom         — gentle UnrealBloomPass, composited back into the HDR target.
+ *   3. bloom         — a gentle bloom (three's UnrealBloomPass recipe), added back into the HDR target.
  *   4. finish        — ACES, contrast-adaptive sharpening, vignette and grain at native res.
+ *
+ * One canvas serves the page: the hero and the footer are never on screen together, so the
+ * canvas moves to whichever is in view. The shaders compile and the textures bake once, and
+ * where the browser supports it the compile runs off the main thread (the loader keeps moving).
  */
 
 // ---------------------------------------------------------------- GLSL: noise
@@ -495,261 +481,513 @@ const FINISH_FRAG = /* glsl */ `
   }
 `
 
-// ------------------------------------------------------------------- mounting
-export function mountBlackHole(
-  canvas: HTMLCanvasElement,
-  opts: { controls: SceneControls; framing: Framing; onReady?: () => void },
-) {
-  const { controls, framing } = opts
-  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  const compact = window.matchMedia('(max-width: 767px)').matches
-  const small = compact || framing === 'footer'
-  const outDpr = Math.min(window.devicePixelRatio || 1, compact ? 2 : 1.5)
+// ------------------------------------------------------ GLSL: bloom (three's UnrealBloomPass)
+const HIGHPASS_FRAG = /* glsl */ `
+  uniform sampler2D tDiffuse;
+  uniform float luminosityThreshold;
+  uniform float smoothWidth;
+  varying vec2 vUv;
+  float luminance(const in vec3 rgb) { return dot(vec3(0.2126, 0.7152, 0.0722), rgb); }
+  void main() {
+    vec4 texel = texture2D(tDiffuse, vUv);
+    float alpha = smoothstep(luminosityThreshold, luminosityThreshold + smoothWidth, luminance(texel.xyz));
+    gl_FragColor = mix(vec4(0.0), texel, alpha);
+  }
+`
 
-  const renderer = new WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' })
-  renderer.setPixelRatio(outDpr)
-  renderer.autoClear = false
-  const hdr =
-    renderer.extensions.has('EXT_color_buffer_half_float') || renderer.extensions.has('EXT_color_buffer_float')
+const BLUR_FRAG = /* glsl */ `
+  varying vec2 vUv;
+  uniform sampler2D colorTexture;
+  uniform vec2 invSize;
+  uniform vec2 direction;
+  uniform float centerWeight;
+  uniform float gaussianOffsets[KERNEL_PAIRS];
+  uniform float gaussianWeights[KERNEL_PAIRS];
+  void main() {
+    vec3 diffuseSum = texture2D(colorTexture, vUv).rgb * centerWeight;
+    for (int i = 0; i < KERNEL_PAIRS; i++) {
+      vec2 uvOffset = direction * invSize * gaussianOffsets[i];
+      diffuseSum += (texture2D(colorTexture, vUv + uvOffset).rgb + texture2D(colorTexture, vUv - uvOffset).rgb) * gaussianWeights[i];
+    }
+    gl_FragColor = vec4(diffuseSum, 1.0);
+  }
+`
 
-  const camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1)
-  const quad = new PlaneGeometry(2, 2)
-  const pass = (fragmentShader: string, uniforms: Record<string, { value: unknown }>) => {
-    const material = new ShaderMaterial({
-      vertexShader: QUAD_VERT,
-      fragmentShader,
-      uniforms,
-      blending: NoBlending,
-      depthTest: false,
-      depthWrite: false,
+const COMPOSITE_FRAG = /* glsl */ `
+  varying vec2 vUv;
+  uniform sampler2D blurTexture1, blurTexture2, blurTexture3, blurTexture4, blurTexture5;
+  uniform float bloomStrength;
+  uniform float bloomRadius;
+  uniform float bloomFactors[5];
+  float lerpBloomFactor(const in float factor) { return mix(factor, 1.2 - factor, bloomRadius); }
+  void main() {
+    vec3 bloom = 3.0 * bloomStrength * (
+      lerpBloomFactor(bloomFactors[0]) * texture2D(blurTexture1, vUv).rgb +
+      lerpBloomFactor(bloomFactors[1]) * texture2D(blurTexture2, vUv).rgb +
+      lerpBloomFactor(bloomFactors[2]) * texture2D(blurTexture3, vUv).rgb +
+      lerpBloomFactor(bloomFactors[3]) * texture2D(blurTexture4, vUv).rgb +
+      lerpBloomFactor(bloomFactors[4]) * texture2D(blurTexture5, vUv).rgb
+    );
+    gl_FragColor = vec4(bloom, max(bloom.r, max(bloom.g, bloom.b)));
+  }
+`
+
+const COPY_FRAG = /* glsl */ `
+  uniform sampler2D tDiffuse;
+  varying vec2 vUv;
+  void main() { gl_FragColor = texture2D(tDiffuse, vUv); }
+`
+
+/** Gaussian taps merged pairwise into bilinear fetches, as UnrealBloomPass builds them. */
+function blurKernel(radius: number) {
+  const sigma = radius / 3
+  const c: number[] = []
+  for (let i = 0; i < radius; i++) c.push((0.39894 * Math.exp((-0.5 * i * i) / (sigma * sigma))) / sigma)
+  const offsets: number[] = []
+  const weights: number[] = []
+  for (let i = 1; i < radius; i += 2) {
+    const wa = c[i]!
+    const wb = i + 1 < radius ? c[i + 1]! : 0
+    offsets.push((i * wa + (i + 1) * wb) / (wa + wb))
+    weights.push(wa + wb)
+  }
+  return { center: c[0]!, offsets, weights }
+}
+
+/** Bright-pass, five blurred mips, composite, added back onto the scene. */
+class Bloom {
+  private bright: Target
+  private horizontal: Target[] = []
+  private vertical: Target[] = []
+  private highpass: Program
+  private blurs: { program: Program; kernel: ReturnType<typeof blurKernel> }[] = []
+  private composite: Program
+  private copy: Program
+
+  constructor(
+    private g: GL,
+    private strength = 0.42,
+    private radius = 0.5,
+    private threshold = 1,
+  ) {
+    this.bright = g.target(1, 1, { half: true })
+    for (let i = 0; i < 5; i++) {
+      this.horizontal.push(g.target(1, 1, { half: true }))
+      this.vertical.push(g.target(1, 1, { half: true }))
+    }
+    this.highpass = g.program(QUAD_VERT, HIGHPASS_FRAG)
+    for (const r of [6, 10, 14, 18, 22]) {
+      const kernel = blurKernel(r)
+      this.blurs.push({ program: g.program(QUAD_VERT, BLUR_FRAG, { KERNEL_PAIRS: kernel.offsets.length }), kernel })
+    }
+    this.composite = g.program(QUAD_VERT, COMPOSITE_FRAG)
+    this.copy = g.program(QUAD_VERT, COPY_FRAG)
+  }
+
+  get programs() {
+    return [this.highpass, ...this.blurs.map((b) => b.program), this.composite, this.copy]
+  }
+
+  setSize(width: number, height: number) {
+    let x = Math.round(width / 2)
+    let y = Math.round(height / 2)
+    this.g.resize(this.bright, x, y)
+    for (let i = 0; i < 5; i++) {
+      this.g.resize(this.horizontal[i]!, x, y)
+      this.g.resize(this.vertical[i]!, x, y)
+      x = Math.round(x / 2)
+      y = Math.round(y / 2)
+    }
+  }
+
+  render(scene: Target) {
+    const { g } = this
+    const gl = g.gl
+
+    g.bind(this.bright)
+    this.highpass.use()
+    g.texture(0, scene)
+    this.highpass.u1i('tDiffuse', 0)
+    this.highpass.u1f('luminosityThreshold', this.threshold)
+    this.highpass.u1f('smoothWidth', 0.01)
+    g.draw()
+
+    let input = this.bright
+    this.blurs.forEach(({ program, kernel }, i) => {
+      const h = this.horizontal[i]!
+      const v = this.vertical[i]!
+      program.use()
+      program.u1i('colorTexture', 0)
+      program.u2f('invSize', 1 / h.w, 1 / h.h)
+      program.u1f('centerWeight', kernel.center)
+      program.u1fv('gaussianOffsets', kernel.offsets)
+      program.u1fv('gaussianWeights', kernel.weights)
+      g.bind(h)
+      g.texture(0, input)
+      program.u2f('direction', 1, 0)
+      g.draw()
+      g.bind(v)
+      g.texture(0, h)
+      program.u2f('direction', 0, 1)
+      g.draw()
+      input = v
     })
-    const scene = new Scene()
-    scene.add(new Mesh(quad, material))
-    return { material, scene }
+
+    g.bind(this.horizontal[0]!)
+    this.composite.use()
+    this.vertical.forEach((t, i) => {
+      g.texture(i, t)
+      this.composite.u1i(`blurTexture${i + 1}`, i)
+    })
+    this.composite.u1f('bloomStrength', this.strength)
+    this.composite.u1f('bloomRadius', this.radius)
+    this.composite.u1fv('bloomFactors', [1, 0.8, 0.6, 0.4, 0.2])
+    g.draw()
+
+    // added onto the scene (premultiplied additive: ONE, ONE)
+    g.bind(scene)
+    this.copy.use()
+    g.texture(0, this.horizontal[0]!)
+    this.copy.u1i('tDiffuse', 0)
+    gl.enable(gl.BLEND)
+    gl.blendFunc(gl.ONE, gl.ONE)
+    g.draw()
+    gl.disable(gl.BLEND)
   }
+}
 
-  // ---- bakes ----------------------------------------------------------------------
-  const skySize = [2048, 1024] as const
-  const skyRT = new WebGLRenderTarget(skySize[0], skySize[1], {
-    type: UnsignedByteType,
-    generateMipmaps: true,
-    minFilter: LinearMipmapLinearFilter,
-    magFilter: LinearFilter,
-    wrapS: RepeatWrapping,
-    wrapT: ClampToEdgeWrapping,
-    depthBuffer: false,
-  })
-  const diskSize = small ? ([1024, 512] as const) : ([2048, 1024] as const)
-  const diskRT = new WebGLRenderTarget(diskSize[0], diskSize[1], {
-    type: UnsignedByteType,
-    generateMipmaps: true,
-    minFilter: LinearMipmapLinearFilter,
-    magFilter: LinearFilter,
-    wrapS: RepeatWrapping,
-    wrapT: ClampToEdgeWrapping,
-    depthBuffer: false,
-  })
+// ------------------------------------------------------------------- the scene
+interface HostOptions {
+  framing: Framing
+  controls: SceneControls
+  /** The first frame has been drawn into this host. */
+  onReady?: () => void
+}
 
-  // grazing views of the disk and the sky's poles need anisotropic filtering to stay sharp
-  const aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy())
-  skyRT.texture.anisotropy = aniso
-  diskRT.texture.anisotropy = aniso
+interface Host extends HostOptions {
+  el: HTMLElement
+  visible: boolean
+  shown: boolean
+}
 
-  // galactic plane tilted only slightly off the disk plane, so the band stays low in the frame
+const STRIPS = 4
+const SKY_SIZE = [2048, 1024] as const
+
+/** The galaxy's frame: its core sits low behind the disk, its plane tilted 12°. Column-major. */
+function galacticFrame() {
   const tilt = (12 * Math.PI) / 180
-  const north = new Vector3(-Math.sin(tilt), Math.cos(tilt), 0)
-  const inPlane = new Vector3().crossVectors(north, new Vector3(0, 0, 1)).normalize()
-  const coreDir = new Vector3(0, 0, -1).multiplyScalar(Math.cos(0.5)).addScaledVector(inPlane, Math.sin(0.5)).normalize()
-  const gz = new Vector3().crossVectors(coreDir, north).normalize()
-  const gal = new Matrix3().set(coreDir.x, coreDir.y, coreDir.z, north.x, north.y, north.z, gz.x, gz.y, gz.z)
-
-  const sky = pass(SKY_FRAG, { uGal: { value: gal }, uOctaves: { value: 4 } })
-  const disk = pass(DISK_FRAG, { uRadial: { value: diskSize[1] } })
-
-  // ---- main HDR pass --------------------------------------------------------------
-  const uniforms = {
-    uSky: { value: skyRT.texture },
-    uDisk: { value: diskRT.texture },
-    uRes: { value: new Vector2(1, 1) },
-    uTime: { value: 0 },
-    uIntro: { value: 0 },
-    uScroll: { value: 0 },
-    uMouse: { value: new Vector2() },
-    uLook: { value: framing === 'footer' ? 0.1 : 0.27 },
-    uDist: { value: framing === 'footer' ? 30 : 24 },
-    uSteps: { value: compact ? 160 : 260 },
-    uFocal: { value: 0.909 },
+  const north = [-Math.sin(tilt), Math.cos(tilt), 0]
+  const norm = (v: number[]) => {
+    const l = Math.hypot(v[0]!, v[1]!, v[2]!)
+    return v.map((x) => x / l)
   }
-  const main = pass(MAIN_FRAG, uniforms)
-  const sceneRT = new WebGLRenderTarget(1, 1, {
-    type: hdr ? HalfFloatType : UnsignedByteType,
-    minFilter: LinearFilter,
-    magFilter: LinearFilter,
-    depthBuffer: false,
-    generateMipmaps: false,
+  const cross = (a: number[], b: number[]) => [a[1]! * b[2]! - a[2]! * b[1]!, a[2]! * b[0]! - a[0]! * b[2]!, a[0]! * b[1]! - a[1]! * b[0]!]
+  const inPlane = norm(cross(north, [0, 0, 1]))
+  const core = norm([inPlane[0]! * Math.sin(0.5), inPlane[1]! * Math.sin(0.5), -Math.cos(0.5) + inPlane[2]! * Math.sin(0.5)])
+  const gz = norm(cross(core, north))
+  // rows: core, north, gz
+  return [core[0]!, north[0]!, gz[0]!, core[1]!, north[1]!, gz[1]!, core[2]!, north[2]!, gz[2]!]
+}
+
+class BlackHole {
+  readonly canvas = document.createElement('canvas')
+  private g!: GL
+  private sky!: Program
+  private disk!: Program
+  private main!: Program
+  private finish!: Program
+  private bloom!: Bloom
+  private skyRT!: Target
+  private diskRT!: Target
+  private sceneRT!: Target
+  private diskSize: readonly [number, number]
+  private gal = galacticFrame()
+
+  private hosts: Host[] = []
+  private active: Host | null = null
+  private io = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      const host = this.hosts.find((h) => h.el === e.target)
+      if (host) host.visible = e.isIntersecting
+    }
   })
-
-  const bloom = new UnrealBloomPass(new Vector2(256, 256), 0.42, 0.5, 1.0)
-
-  const finishUniforms = {
-    tScene: { value: sceneRT.texture },
-    uTexel: { value: new Vector2(1, 1) },
-    uTime: { value: 0 },
-    uSharpen: { value: 0.45 },
-    uExposure: { value: 1.05 },
-  }
-  const finish = pass(FINISH_FRAG, finishUniforms)
-
-  // ---- sizing & adaptive quality --------------------------------------------------
-  const maxQuality = compact ? 0.75 : 1
-  const minQuality = compact ? 0.45 : 0.55
-  let quality = maxQuality
-  let width = 1
-  let height = 1
-  const out = new Vector2()
-  const applySize = () => {
-    renderer.setSize(width, height, false)
-    renderer.getDrawingBufferSize(out)
-    const w = Math.max(2, Math.round(out.x * quality))
-    const h = Math.max(2, Math.round(out.y * quality))
-    sceneRT.setSize(w, h)
-    bloom.setSize(w, h)
-    uniforms.uRes.value.set(w, h)
-    finishUniforms.uTexel.value.set(1 / w, 1 / h)
-  }
-
-  // bake the sky in strips, one per frame, so mounting never blocks the page
-  const STRIPS = 4
-  let baked = 0
-  const bakeStep = () => {
-    if (baked === 0) {
-      renderer.setRenderTarget(diskRT)
-      renderer.render(disk.scene, camera)
-    }
-    const h = skySize[1] / STRIPS
-    skyRT.viewport.set(0, 0, skySize[0], skySize[1])
-    skyRT.scissor.set(0, baked * h, skySize[0], h)
-    skyRT.scissorTest = true
-    renderer.setRenderTarget(skyRT)
-    renderer.render(sky.scene, camera) // three regenerates the mip chain after each strip
-    skyRT.scissorTest = false
-    renderer.setRenderTarget(null)
-    baked++
-  }
-
-  const pointer = new Vector2()
-  const pointerTarget = new Vector2()
-  const onPointer = (e: PointerEvent) =>
-    pointerTarget.set((e.clientX / window.innerWidth) * 2 - 1, -((e.clientY / window.innerHeight) * 2 - 1))
-  if (!still) window.addEventListener('pointermove', onPointer, { passive: true })
-
-  let visible = true
-  let ready = false
-  const start = performance.now()
-
-  const render = (now: number) => {
-    const t = still ? 18 : (now - start) / 1000
-    pointer.lerp(pointerTarget, 0.035)
-    uniforms.uTime.value = t
-    uniforms.uMouse.value.copy(pointer)
-    uniforms.uIntro.value = controls.intro.v
-    uniforms.uScroll.value = controls.scroll.v
-    finishUniforms.uTime.value = t
-
-    renderer.setRenderTarget(sceneRT)
-    renderer.render(main.scene, camera)
-    bloom.render(renderer, null as never, sceneRT, 0, false)
-    renderer.setRenderTarget(null)
-    renderer.render(finish.scene, camera)
-
-    if (!ready) {
-      ready = true
-      opts.onReady?.()
-    }
-  }
-
-  // size synchronously on mount (the observer only reports after the next layout)
-  {
-    const rect = canvas.getBoundingClientRect()
-    width = Math.max(1, rect.width)
-    height = Math.max(1, rect.height)
-    applySize()
-  }
-  const ro = new ResizeObserver(([entry]) => {
+  private ro = new ResizeObserver(([entry]) => {
     if (!entry) return
-    width = Math.max(1, entry.contentRect.width)
-    height = Math.max(1, entry.contentRect.height)
-    applySize()
-    if (still && baked >= STRIPS) render(performance.now())
+    this.width = Math.max(1, entry.contentRect.width)
+    this.height = Math.max(1, entry.contentRect.height)
+    this.applySize()
+    this.dirty = true
   })
-  ro.observe(canvas)
-  const io = new IntersectionObserver(([e]) => (visible = !!e?.isIntersecting))
-  io.observe(canvas)
 
-  // adaptive quality, vsync-aware. Frame intervals can't drop below the refresh period, so:
-  // step down when most frames miss it, step back up only when nearly all frames make it,
-  // and remember the level that failed so it doesn't oscillate (that memory slowly relaxes).
-  let last = 0
-  let warmup = 60 // frames after the bake: shader compile and page settle aren't the GPU's steady state
-  let fastWindows = 0
-  let stableWindows = 0
-  let ceiling = maxQuality
-  const frameTimes: number[] = []
-  const settle = (sorted: number[]) => {
+  private still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  private compact = window.matchMedia('(max-width: 767px)').matches
+  private outDpr = Math.min(window.devicePixelRatio || 1, this.compact ? 2 : 1.5)
+  private maxQuality = this.compact ? 0.75 : 1
+  private minQuality = this.compact ? 0.45 : 0.55
+  private quality = this.maxQuality
+  private ceiling = this.maxQuality
+  private width = 1
+  private height = 1
+  private bufW = 1
+  private bufH = 1
+
+  private compiled = false
+  private failed = false
+  private lost = false
+  private baked = 0
+  private dirty = true
+  private start = performance.now()
+  private pointer = { x: 0, y: 0 }
+  private pointerTarget = { x: 0, y: 0 }
+
+  // adaptive resolution
+  private last = 0
+  private warmup = 60 // frames after the bake: shader compile and page settle aren't the GPU's steady state
+  private fastWindows = 0
+  private stableWindows = 0
+  private frameTimes: number[] = []
+
+  constructor() {
+    this.canvas.className = 'absolute inset-0 block h-full w-full'
+    this.canvas.setAttribute('aria-hidden', 'true')
+    this.diskSize = this.compact ? [1024, 512] : [2048, 1024]
+    this.init()
+
+    this.canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault()
+      this.lost = true
+    })
+    this.canvas.addEventListener('webglcontextrestored', () => {
+      this.lost = false
+      this.init(true)
+    })
+    if (!this.still) {
+      window.addEventListener(
+        'pointermove',
+        (e) => {
+          this.pointerTarget.x = (e.clientX / window.innerWidth) * 2 - 1
+          this.pointerTarget.y = -((e.clientY / window.innerHeight) * 2 - 1)
+        },
+        { passive: true },
+      )
+    }
+    gsap.ticker.add(this.tick)
+  }
+
+  /** (Re)creates every GPU resource: on start, and after a lost context comes back. */
+  private init(restored = false) {
+    if (restored || !this.g) this.g = new GL(this.canvas)
+    const g = this.g
+    const aniso = Math.min(8, g.maxAnisotropy)
+    const baked = { mipmaps: true, repeatS: true, anisotropy: aniso }
+    this.skyRT = g.target(SKY_SIZE[0], SKY_SIZE[1], baked)
+    this.diskRT = g.target(this.diskSize[0], this.diskSize[1], baked)
+    this.sceneRT = g.target(1, 1, { half: true })
+    this.sky = g.program(QUAD_VERT, SKY_FRAG)
+    this.disk = g.program(QUAD_VERT, DISK_FRAG)
+    this.main = g.program(QUAD_VERT, MAIN_FRAG)
+    this.finish = g.program(QUAD_VERT, FINISH_FRAG)
+    this.bloom = new Bloom(g)
+    this.compiled = false
+    this.baked = 0
+    this.dirty = true
+    this.applySize()
+    progress('scene', 0.15)
+  }
+
+  attach(el: HTMLElement, opts: HostOptions) {
+    const host: Host = { ...opts, el, visible: false, shown: false }
+    this.hosts.push(host)
+    this.io.observe(el)
+    return () => {
+      this.io.unobserve(el)
+      this.hosts = this.hosts.filter((h) => h !== host)
+      if (this.active === host) {
+        this.active = null
+        this.ro.disconnect()
+        this.canvas.remove()
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------- sizing
+  private applySize() {
+    this.bufW = Math.max(1, Math.floor(this.width * this.outDpr))
+    this.bufH = Math.max(1, Math.floor(this.height * this.outDpr))
+    this.canvas.width = this.bufW
+    this.canvas.height = this.bufH
+    const w = Math.max(2, Math.round(this.bufW * this.quality))
+    const h = Math.max(2, Math.round(this.bufH * this.quality))
+    this.g.resize(this.sceneRT, w, h)
+    this.bloom.setSize(w, h)
+  }
+
+  /** The canvas lives in the first host that's on screen. */
+  private pickHost() {
+    const host = this.hosts.find((h) => h.visible) ?? null
+    if (host && host !== this.active) {
+      this.active = host
+      host.el.appendChild(this.canvas)
+      this.ro.disconnect()
+      this.ro.observe(host.el)
+      const rect = host.el.getBoundingClientRect()
+      this.width = Math.max(1, rect.width)
+      this.height = Math.max(1, rect.height)
+      this.applySize()
+      this.dirty = true
+    }
+    return host
+  }
+
+  // ---------------------------------------------------------------- start-up
+  private allPrograms() {
+    return [this.sky, this.disk, this.main, this.finish, ...this.bloom.programs]
+  }
+
+  private checkCompiled() {
+    const programs = this.allPrograms()
+    const ready = programs.filter((p) => p.ready()).length // throws if one failed
+    progress('scene', 0.15 + 0.45 * (ready / programs.length))
+    this.compiled = ready === programs.length
+    return this.compiled
+  }
+
+  private bakeStep() {
+    const { g } = this
+    const gl = g.gl
+    if (this.baked === 0) {
+      g.bind(this.diskRT)
+      this.disk.use()
+      this.disk.u1f('uRadial', this.diskSize[1])
+      g.draw()
+      g.mipmaps(this.diskRT)
+    }
+    const h = SKY_SIZE[1] / STRIPS
+    g.bind(this.skyRT)
+    gl.enable(gl.SCISSOR_TEST)
+    gl.scissor(0, this.baked * h, SKY_SIZE[0], h)
+    this.sky.use()
+    this.sky.uMat3('uGal', this.gal)
+    this.sky.u1f('uOctaves', 4)
+    g.draw()
+    gl.disable(gl.SCISSOR_TEST)
+    g.mipmaps(this.skyRT)
+    this.baked++
+    progress('scene', 0.6 + 0.3 * (this.baked / STRIPS))
+  }
+
+  // ------------------------------------------------------------------ frames
+  private render(now: number, host: Host) {
+    const { g } = this
+    const t = this.still ? 18 : (now - this.start) / 1000
+    this.pointer.x += (this.pointerTarget.x - this.pointer.x) * 0.035
+    this.pointer.y += (this.pointerTarget.y - this.pointer.y) * 0.035
+
+    g.bind(this.sceneRT)
+    const m = this.main
+    m.use()
+    g.texture(0, this.skyRT)
+    g.texture(1, this.diskRT)
+    m.u1i('uSky', 0)
+    m.u1i('uDisk', 1)
+    m.u2f('uRes', this.sceneRT.w, this.sceneRT.h)
+    m.u1f('uTime', t)
+    m.u1f('uIntro', host.controls.intro.v)
+    m.u1f('uScroll', host.controls.scroll.v)
+    m.u2f('uMouse', this.pointer.x, this.pointer.y)
+    m.u1f('uLook', host.framing === 'footer' ? 0.1 : 0.27)
+    m.u1f('uDist', host.framing === 'footer' ? 30 : 24)
+    m.u1f('uSteps', this.compact ? 160 : 260)
+    m.u1f('uFocal', 0.909)
+    g.draw()
+
+    this.bloom.render(this.sceneRT)
+
+    g.bind(null, this.bufW, this.bufH)
+    const f = this.finish
+    f.use()
+    g.texture(0, this.sceneRT)
+    f.u1i('tScene', 0)
+    f.u2f('uTexel', 1 / this.sceneRT.w, 1 / this.sceneRT.h)
+    f.u1f('uTime', t)
+    f.u1f('uSharpen', 0.45)
+    f.u1f('uExposure', 1.05)
+    g.draw()
+
+    this.dirty = false
+    if (!host.shown) {
+      host.shown = true
+      progress('scene', 1)
+      host.onReady?.()
+    }
+  }
+
+  /** Drop resolution when the GPU can't hold ~50fps; win it back once there's headroom. */
+  private settle(sorted: number[]) {
     const p50 = sorted[Math.floor(sorted.length * 0.5)] ?? 16
     const p90 = sorted[Math.floor(sorted.length * 0.9)] ?? 16
-    if (p50 > 20 && quality > minQuality) {
-      ceiling = Math.min(ceiling, quality * 0.97)
-      quality = Math.max(minQuality, quality * 0.9)
-      fastWindows = stableWindows = 0
-      applySize()
-    } else if (p90 < 17.8 && quality < ceiling) {
-      if (++fastWindows >= 3) {
-        quality = Math.min(ceiling, quality * 1.05)
-        fastWindows = 0
-        applySize()
+    if (p50 > 20 && this.quality > this.minQuality) {
+      this.ceiling = Math.min(this.ceiling, this.quality * 0.97)
+      this.quality = Math.max(this.minQuality, this.quality * 0.9)
+      this.fastWindows = this.stableWindows = 0
+      this.applySize()
+    } else if (p90 < 17.8 && this.quality < this.ceiling) {
+      if (++this.fastWindows >= 3) {
+        this.quality = Math.min(this.ceiling, this.quality * 1.05)
+        this.fastWindows = 0
+        this.applySize()
       }
     } else {
-      fastWindows = 0
-      if (++stableWindows >= 12 && ceiling < maxQuality) {
-        ceiling = Math.min(maxQuality, ceiling * 1.04)
-        stableWindows = 0
+      this.fastWindows = 0
+      if (++this.stableWindows >= 12 && this.ceiling < this.maxQuality) {
+        this.ceiling = Math.min(this.maxQuality, this.ceiling * 1.04)
+        this.stableWindows = 0
       }
     }
   }
-  const tick = () => {
-    if (!visible) return
-    if (baked < STRIPS) {
-      bakeStep()
-      if (baked === STRIPS && still) render(performance.now())
+
+  private tick = () => {
+    if (this.failed || this.lost) return
+    const host = this.pickHost()
+    if (!host) return
+    try {
+      if (!this.compiled && !this.checkCompiled()) return
+    } catch (err) {
+      this.failed = true
+      console.warn('[scene] black hole unavailable', err)
+      progress('scene', 1)
       return
     }
-    if (still) return
+    if (this.baked < STRIPS) {
+      this.bakeStep()
+      if (this.baked === STRIPS && this.still) this.render(performance.now(), host)
+      return
+    }
+    if (this.still) {
+      if (this.dirty || !host.shown) this.render(performance.now(), host)
+      return
+    }
     const now = performance.now()
-    if (warmup > 0) warmup--
-    else if (last && now - last < 250) {
-      frameTimes.push(now - last)
-      if (frameTimes.length >= 45) {
-        settle([...frameTimes].sort((a, b) => a - b))
-        frameTimes.length = 0
+    if (this.warmup > 0) this.warmup--
+    else if (this.last && now - this.last < 250) {
+      this.frameTimes.push(now - this.last)
+      if (this.frameTimes.length >= 45) {
+        this.settle([...this.frameTimes].sort((a, b) => a - b))
+        this.frameTimes.length = 0
       }
     }
-    last = now
-    render(now)
+    this.last = now
+    this.render(now, host)
   }
-  gsap.ticker.add(tick)
+}
 
-  return () => {
-    gsap.ticker.remove(tick)
-    ro.disconnect()
-    io.disconnect()
-    window.removeEventListener('pointermove', onPointer)
-    ;[sky, disk, main, finish].forEach((p) => p.material.dispose())
-    quad.dispose()
-    skyRT.dispose()
-    diskRT.dispose()
-    sceneRT.dispose()
-    bloom.dispose()
-    renderer.dispose()
-  }
+let instance: BlackHole | undefined
+
+/**
+ * Show the black hole in `el` (the hero's ground, the footer's stage). Throws when WebGL2
+ * is unavailable, so the caller keeps its CSS stand-in.
+ */
+export function attachBlackHole(el: HTMLElement, opts: HostOptions) {
+  instance ??= new BlackHole()
+  return instance.attach(el, opts)
 }

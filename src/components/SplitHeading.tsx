@@ -1,5 +1,5 @@
 import { useRef, type ElementType, type ReactNode } from 'react'
-import { EASE, MQ, SplitText, gsap, useGSAP } from '../lib/gsap'
+import { EASE, MQ, SplitText, gsap, useLazyGSAP } from '../lib/gsap'
 
 interface SplitHeadingProps {
   as?: ElementType
@@ -18,7 +18,7 @@ interface SplitHeadingProps {
 export function SplitHeading({ as: Tag = 'h2', id, className, children, delay = 0, start = 'top 86%' }: SplitHeadingProps) {
   const ref = useRef<HTMLElement>(null)
 
-  useGSAP(
+  useLazyGSAP(
     () => {
       const el = ref.current
       if (!el) return
@@ -27,6 +27,8 @@ export function SplitHeading({ as: Tag = 'h2', id, className, children, delay = 
         SplitText.create(el, {
           type: 'lines',
           mask: 'lines',
+          // a line split leaves words whole, so the text reads fine as is; only headings may carry the label
+          aria: Tag === 'p' ? 'none' : 'auto',
           linesClass: 'split-line',
           autoSplit: true,
           onSplit(self) {
@@ -58,13 +60,13 @@ export function SplitHeading({ as: Tag = 'h2', id, className, children, delay = 
 }
 
 /**
- * The script labels ("About me", "Selected projects") are wiped in like ink. The script's
+ * The script labels ("About me", "Projects") are wiped in like ink. The script's
  * swashes overhang the box, so the wipe runs from -15% to 115% (the start window is empty,
  * no sliver peeks out) and the clip is dropped once it's done.
  */
 export function ScriptLabel({ children, className = '' }: { children: ReactNode; className?: string }) {
   const ref = useRef<HTMLParagraphElement>(null)
-  useGSAP(
+  useLazyGSAP(
     () => {
       const mm = gsap.matchMedia()
       mm.add(MQ.motion, () => {

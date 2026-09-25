@@ -6,7 +6,10 @@ import { ButtonLink, ButtonPair } from '../components/Button'
 import { CopyEmail } from '../components/CopyEmail'
 import { EASE, MQ, gsap, prefersReducedMotion, useGSAP } from '../lib/gsap'
 import { lockScroll } from '../lib/scroll'
-import { heroControls, type Framing, type SceneControls } from '../three/state'
+import { booted, progress } from '../lib/boot'
+import { pinRange } from '../lib/stepper'
+import { heroControls, type Framing, type SceneControls } from '../scene/state'
+import { presets } from '../webgl/presets'
 import { profile } from '../data/resume'
 
 const article = (word: string) => (/^[aeiou]/i.test(word) ? 'an' : 'a')
@@ -33,9 +36,11 @@ function RoleRotator({ roles }: { roles: string[] }) {
           .to(current, { yPercent: -135 }, 0)
           .fromTo(next, { yPercent: 135 }, { yPercent: 0 }, 0.08)
       }
-      const loop = gsap.delayedCall(5.5, function cycle() {
+      // the lead role (the first) holds the line about twice as long as the others
+      const hold = (index: number) => (index === 0 ? 7.5 : 3.8)
+      const loop = gsap.delayedCall(hold(0), function cycle() {
         swap()
-        loop.restart(true)
+        loop.delay(hold(i)).restart(true)
       })
       const onResize = () => gsap.set(mask, { width: items[i]!.offsetWidth })
       window.addEventListener('resize', onResize)
@@ -70,26 +75,31 @@ function SceneFallback() {
   )
 }
 
-/** The black hole: lazy-loaded after first paint, mounted in the hero and again above the footer. */
+/**
+ * The black hole, lazy-loaded. The hero and the footer each render a host; one shared
+ * canvas moves to whichever is on screen. `onFail` fires when WebGL2 isn't available.
+ */
 export function HeroScene({
   framing = 'hero',
   controls = heroControls,
   onReady,
+  onFail,
 }: {
   framing?: Framing
   controls?: SceneControls
   onReady?: () => void
+  onFail?: () => void
 }) {
-  const ref = useRef<HTMLCanvasElement>(null)
+  const ref = useRef<HTMLDivElement>(null)
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    let dispose: (() => void) | undefined
+    let detach: (() => void) | undefined
     let cancelled = false
-    import('../three/blackhole')
-      .then(({ mountBlackHole }) => {
+    import('../scene/blackhole')
+      .then(({ attachBlackHole }) => {
         if (cancelled || !ref.current) return
-        dispose = mountBlackHole(ref.current, {
+        detach = attachBlackHole(ref.current, {
           framing,
           controls,
           onReady: () => {
@@ -98,10 +108,13 @@ export function HeroScene({
           },
         })
       })
-      .catch((err) => console.warn('[hero] 3D scene unavailable', err))
+      .catch((err) => {
+        console.warn('[hero] 3D scene unavailable', err)
+        onFail?.()
+      })
     return () => {
       cancelled = true
-      dispose?.()
+      detach?.()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [framing, controls])
@@ -111,21 +124,21 @@ export function HeroScene({
       <div className="absolute inset-0 transition-opacity duration-[1600ms]" style={{ opacity: ready ? 0 : 1 }}>
         <SceneFallback />
       </div>
-      <canvas
-        ref={ref}
-        aria-hidden
-        className="absolute inset-0 block h-full w-full transition-opacity duration-[1600ms]"
-        style={{ opacity: ready ? 1 : 0 }}
-      />
+      <div ref={ref} aria-hidden className="absolute inset-0 transition-opacity duration-[1600ms]" style={{ opacity: ready ? 1 : 0 }} />
     </>
   )
 }
 
 export function Hero() {
   const root = useRef<HTMLElement>(null)
-  // the black hole paints its own universe; once it's up, stop rendering the sky underneath
+  // the black hole paints its own universe. The animated sky only runs if it can't (no WebGL2);
+  // until the black hole is up, the sky's CSS gradient stands in (and the loader covers it)
   const [sceneReady, setSceneReady] = useState(false)
-  const showSky = !sceneReady
+  const [sceneFailed, setSceneFailed] = useState(false)
+  useEffect(() => {
+    // nothing for the loader to wait on
+    if (sceneFailed) progress('scene', 1)
+  }, [sceneFailed])
 
   useGSAP(
     () => {
@@ -142,46 +155,43 @@ export function Hero() {
       mm.add(MQ.motion, () => {
         lockScroll(true)
         heroControls.intro.v = 0
-        const tl = gsap.timeline({ delay: 0.1, onComplete: () => lockScroll(false) })
-        tl.fromTo(q('[data-hero-slate]'), { autoAlpha: 0, y: 10 }, { autoAlpha: 1, y: 0, duration: 0.9, ease: 'power2.out' }, 0)
-          .to(q('[data-hero-slate]'), { autoAlpha: 0, duration: 0.8, ease: 'power2.in' }, 1.1)
-          .fromTo(
-            q('[data-hero-frame]'),
-            { clipPath: 'inset(48% 0% 48% 0%)' },
-            { clipPath: 'inset(0% 0% 0% 0%)', duration: 2.6, ease: EASE.cine },
-            0.75,
-          )
-          .fromTo(q('[data-hero-sky]'), { scale: 1.2 }, { scale: 1, duration: 3.4, ease: 'power3.out' }, 0.75)
-          .fromTo(q('[data-hero-ground]'), { yPercent: 22 }, { yPercent: 0, duration: 3, ease: 'power3.out' }, 1.1)
-          .fromTo(heroControls.intro, { v: 0 }, { v: 1, duration: 3.6, ease: 'power2.out' }, 1.2)
+        // held until the loader hands over: its slit of light becomes this letterbox
+        const tl = gsap.timeline({ paused: true, onComplete: () => lockScroll(false) })
+        tl.fromTo(q('[data-hero-frame]'), { clipPath: 'inset(48% 0% 48% 0%)' }, { clipPath: 'inset(0% 0% 0% 0%)', duration: 2.6, ease: EASE.cine }, 0)
+          .fromTo(q('[data-hero-sky]'), { scale: 1.2 }, { scale: 1, duration: 3.4, ease: 'power3.out' }, 0)
+          .fromTo(q('[data-hero-ground]'), { yPercent: 22 }, { yPercent: 0, duration: 3, ease: 'power3.out' }, 0.35)
+          .fromTo(heroControls.intro, { v: 0 }, { v: 1, duration: 3.6, ease: 'power2.out' }, 0.45)
           .fromTo(
             q('[data-hero-line]'),
             { yPercent: 135, y: 0, rotate: 2.4 },
             { yPercent: 0, y: 0, rotate: 0, transformOrigin: '0% 100%', duration: 1.9, stagger: 0.17, ease: EASE.rise },
-            1.95,
+            1.2,
           )
-          .fromTo(q('[data-hero-cta]'), { y: 34, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.7 }, 2.55)
-          .fromTo(q('[data-hero-meta]'), { autoAlpha: 0, y: 12 }, { autoAlpha: 1, y: 0, duration: 1.4, stagger: 0.12 }, 2.9)
-        if (nav) tl.fromTo(nav, { yPercent: -140 }, { yPercent: 0, duration: 1.8, ease: EASE.rise }, 2.3)
+          .fromTo(q('[data-hero-cta]'), { y: 34, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.7 }, 1.8)
+          .fromTo(q('[data-hero-meta]'), { autoAlpha: 0, y: 12 }, { autoAlpha: 1, y: 0, duration: 1.4, stagger: 0.12 }, 2.15)
+        if (nav) tl.fromTo(nav, { yPercent: -140 }, { yPercent: 0, duration: 1.8, ease: EASE.rise }, 1.55)
         // the line masks only matter while the lines rise; afterwards they'd just crop the text shadow
         tl.set(q('[data-hero-mask]'), { clipPath: 'none' })
-        tl.call(() => lockScroll(false), [], 2.4)
+        tl.call(() => lockScroll(false), [], 1.65)
         // QA: /?skipintro jumps straight to the finished opening
         if (new URLSearchParams(location.search).has('skipintro')) tl.progress(1)
+        else void booted.then(() => tl.play())
         return () => lockScroll(false)
       })
 
       // ---- Scroll: pinned, the scene recedes into a card --------------------
+      // the camera dive is scroll-driven: the wheel plays it, the page snaps only once it's done
       mm.add(MQ.desktop, () => {
-        gsap
+        const dive = gsap
           .timeline({
-            scrollTrigger: { trigger: root.current, start: 'top top', end: '+=110%', pin: true, scrub: 1.2 },
+            scrollTrigger: { trigger: root.current, start: 'top top', end: '+=70%', pin: true, scrub: 1.2 },
           })
           .to(q('[data-hero-shell]'), { clipPath: 'inset(7% 4.5% 7% 4.5% round 28px)', ease: EASE.glide }, 0)
           .to(q('[data-hero-sky-scroll]'), { scale: 1.1, ease: 'none' }, 0)
           .to(heroControls.scroll, { v: 1, ease: 'none' }, 0)
           .to(q('[data-hero-content]'), { yPercent: -30, autoAlpha: 0, ease: 'power2.in' }, 0)
           .to(q('[data-hero-meta-row]'), { autoAlpha: 0, duration: 0.3, ease: 'none' }, 0)
+        return pinRange(dive.scrollTrigger)
       })
 
       mm.add(MQ.compact, () => {
@@ -203,32 +213,21 @@ export function Hero() {
         <div data-hero-frame className="absolute inset-0 overflow-hidden bg-ink">
           <div data-hero-sky className="absolute inset-0 origin-[50%_45%]">
             <div data-hero-sky-scroll className="absolute inset-0 origin-[50%_40%]">
-              {showSky && <Aurora preset="hero" interactive />}
+              {sceneFailed ? (
+                <Aurora preset="hero" interactive />
+              ) : (
+                !sceneReady && <div className="absolute inset-0" style={{ background: presets.hero.fallback }} />
+              )}
             </div>
           </div>
           <Starfield maxY={0.62} sparkles={11} />
 
           <div data-hero-ground className="absolute inset-0">
-            {profile.portrait ? (
-              <img
-                src={profile.portrait}
-                alt={`Portrait of ${profile.name}`}
-                className="pointer-events-none absolute bottom-0 left-1/2 h-[56%] max-w-none -translate-x-1/2 object-contain object-bottom [mask-image:linear-gradient(to_bottom,#000_55%,transparent_96%)]"
-              />
-            ) : (
-              <HeroScene onReady={() => setSceneReady(true)} />
-            )}
+            <HeroScene onReady={() => setSceneReady(true)} onFail={() => setSceneFailed(true)} />
           </div>
           <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[16%] bg-gradient-to-b from-transparent to-ink" />
-          <div aria-hidden className="grain pointer-events-none absolute inset-0" />
-
-          <p
-            data-hero-slate
-            aria-hidden
-            className="mono-label invisible absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-[10.5px] text-white/80"
-          >
-            {profile.name} <span className="mx-2 text-white/40">—</span> Portfolio MMXXVI
-          </p>
+          {/* the black hole grains its own frames; a blended overlay on top would re-composite every frame */}
+          {!sceneReady && <div aria-hidden className="grain pointer-events-none absolute inset-0" />}
 
           <div
             data-hero-content
@@ -241,18 +240,18 @@ export function Hero() {
               className="text-lift font-serif text-[clamp(2.5rem,1rem+3.6vw,5.4rem)] leading-[1.06] font-normal tracking-[-0.012em] text-[var(--hero-text)]"
             >
               <span data-hero-mask className="text-mask block">
-                <span data-hero-line className="block">
+                <span data-hero-line className="block text-balance">
                   Hey There!
                 </span>
               </span>
               <span data-hero-mask className="text-mask block">
-                <span data-hero-line className="block">
+                <span data-hero-line className="block text-balance">
                   I’m {profile.firstName}, <RoleRotator roles={profile.roles} />
                 </span>
               </span>
               <span data-hero-mask className="text-mask block">
-                <span data-hero-line className="block">
-                  Based in {profile.location}
+                <span data-hero-line className="block text-balance">
+                  who ships products end to end
                 </span>
               </span>
             </h1>
@@ -261,7 +260,7 @@ export function Hero() {
               <ButtonPair>
                 <ButtonLink
                   variant="glow"
-                  href={`mailto:${profile.email}?subject=${encodeURIComponent(`Hello ${profile.firstName} — let's work together`)}`}
+                  href={`mailto:${profile.email}?subject=${encodeURIComponent(`Hello ${profile.firstName}, let's work together`)}`}
                   data-track="contact_click"
                   data-track-label="hero"
                 >
@@ -276,14 +275,14 @@ export function Hero() {
             data-hero-meta-row
             className="mono-label pointer-events-none absolute inset-x-0 bottom-0 z-10 hidden items-end justify-between px-8 pb-7 text-[10px] text-white/55 md:flex 2xl:px-12"
           >
-            <span data-hero-meta>Portfolio — ©{new Date().getFullYear()}</span>
+            <span data-hero-meta>Portfolio ©{new Date().getFullYear()}</span>
             <span data-hero-meta className="flex flex-col items-center gap-3">
               Scroll to explore
               <span className="relative block h-9 w-px overflow-hidden bg-white/15">
                 <span className="animate-scroll-cue absolute inset-x-0 top-0 h-1/2 bg-ice" />
               </span>
             </span>
-            <span data-hero-meta>11.01° N — 76.95° E</span>
+            <span data-hero-meta>Open to work</span>
           </div>
         </div>
       </div>

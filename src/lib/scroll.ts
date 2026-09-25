@@ -20,6 +20,16 @@ export const setAnchorResolver = (fn: ((top: number) => number) | null) => {
 /** True while scrolling is held (the intro, the mobile menu). */
 export const isScrollLocked = () => !!lenis?.isStopped
 
+/** Where the page is heading (Lenis's target), falling back to where it is. */
+export const wheelTarget = () => lenis?.targetScroll ?? window.scrollY
+
+/** Scroll exactly as a wheel tick would — same smoothing — but to a position we chose. */
+export function wheelTo(y: number) {
+  if (!lenis) return window.scrollTo(0, y)
+  const { lerp, duration, easing } = lenis.options
+  lenis.scrollTo(y, { programmatic: false, lerp, duration, easing })
+}
+
 const expoInOut = (t: number) =>
   t === 0 ? 0 : t === 1 ? 1 : t < 0.5 ? Math.pow(2, 20 * t - 10) / 2 : (2 - Math.pow(2, -20 * t + 10)) / 2
 
@@ -139,19 +149,8 @@ export function interceptAnchors() {
     if (id === 'home') return scrollToTarget(0)
     const el = document.getElementById(id)
     if (el) scrollToTarget(anchorTop(el))
-    history.replaceState(null, '', `#${id}`)
+    // the URL stays clean (no #section): a reload starts at the top, like any fresh visit
   }
   document.addEventListener('click', onClick)
-
-  // Deep links (/#projects): the page starts at the top for the intro, then glides there.
-  const hashed = location.hash.slice(1)
-  const pending = hashed && hashed !== 'home' ? gsap.delayedCall(prefersReducedMotion() ? 0 : 2.8, () => {
-    const el = document.getElementById(hashed)
-    if (el) scrollToTarget(anchorTop(el))
-  }) : null
-
-  return () => {
-    document.removeEventListener('click', onClick)
-    pending?.kill()
-  }
+  return () => document.removeEventListener('click', onClick)
 }

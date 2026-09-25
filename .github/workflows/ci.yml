@@ -1,0 +1,94 @@
+name: CI
+
+# Every push and pull request runs the checks. Production deploys only from main and only after
+# every check has passed: vercel.json switches off Vercel's own automatic deploys for main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# least privilege: the workflow only reads the repo. Third-party actions are pinned to commit SHAs
+# (a moved tag can't swap in other code), and checkout doesn't leave the token on disk.
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Build (Vite + prerender)
+        run: npm run build
+
+      - name: Site checks (SEO tags, structured data, prerendered content, JS budget)
+        run: npm run check:site
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Lighthouse (SEO, accessibility and best practices must pass; performance is advisory)
+        uses: treosh/lighthouse-ci-action@3e7e23fb74242897f95c0ba9cabad3d0227b9b18 # v12.6.2
+        with:
+          configPath: ./lighthouserc.json
+          uploadArtifacts: true
+
+  deploy:
+    name: Deploy to Vercel (production)
+    needs: checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: https://aswinkumar.dev
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    # the CLI reads these from the environment, so the token never appears in a command line
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - run: npm install --global vercel@60.0.1
+
+      - name: Pull the production settings and env vars
+        run: vercel pull --yes --environment=production
+
+      - name: Build
+        run: vercel build --prod
+
+      - name: Deploy the checked build
+        run: vercel deploy --prebuilt --prod
+
+      # Bing (and Copilot / ChatGPT search, which draw on it), Yandex, Seznam and others recrawl now
+      - name: Notify search engines (IndexNow)
+        continue-on-error: true
+        run: |
+          curl -fsS -X POST https://api.indexnow.org/indexnow \
+            -H 'Content-Type: application/json; charset=utf-8' \
+            -d '{"host":"aswinkumar.dev","key":"2d65fab03c01f21a86fb78e445364a74","keyLocation":"https://aswinkumar.dev/2d65fab03c01f21a86fb78e445364a74.txt","urlList":["https://aswinkumar.dev/"]}'

@@ -2,6 +2,10 @@
 
 /* Desktop screens under 800px tall (laptops, 125% scaling): layouts compact to fit one screen. */
 @custom-variant short (@media (min-width: 64rem) and (max-height: 50rem));
+/* laptop screens once the browser's chrome is taken off (1366×768 → ~657px tall) */
+@custom-variant tight (@media (min-width: 64rem) and (max-height: 42.5rem));
+/* e.g. a 14" 1080p laptop at 150%: ~1280×610 */
+@custom-variant tighter (@media (min-width: 64rem) and (max-height: 39rem));
 
 @theme {
   --color-ink: #02040b;
@@ -56,16 +60,12 @@
     --scrim-rgb: 2 6 22;
 
     --glow-grad: linear-gradient(180deg, #1f63ff 0%, #2f7dff 55%, #62c4ff 100%);
-    --orb-grad: radial-gradient(circle at 50% 30%, #8fdcff 0%, #2f7dff 55%, #123cbe 100%);
     --mono-grad: linear-gradient(145deg, #061437 0%, #1f5fc2 55%, #5cc8ff 100%);
     --btn-dark-grad: linear-gradient(180deg, #172033 0%, #0c1220 100%);
     --stage-glow: radial-gradient(60% 90% at 50% 105%, rgb(30 90 220 / 0.4) 0%, rgb(12 40 110 / 0.2) 45%, transparent 75%);
-
-    --on-accent: #020a1f;
-    --active-text: #e3f2ff;
     --hero-text: #f3f8ff;
     --dim-word: #28324a;
-    --tool-gray: #5f6d86;
+    --tool-gray: #6e7b94; /* 4.8:1 on ink (WCAG AA) */
     --nav-link: #c9d4e6;
     --nav-fill: rgb(6 14 34 / 0.3);
     --nav-fill-solid: rgb(4 8 18 / 0.86);
@@ -73,9 +73,12 @@
     --circle-bg: rgb(10 17 32 / 0.78);
     --circle-bg-hover: rgb(14 24 46 / 0.92);
     --chip-bg: #0f1829;
-    --chip-hover: #0b1322;
-    --bubble-bg: #060b16;
     --card-border: #141f33;
+    /* the journey timeline: education in gold, internships in violet (jobs use the accent blue) */
+    --edu: #f2c46b;
+    --edu-rgb: 242 196 107;
+    --intern: #b4a9ff;
+    --intern-rgb: 180 169 255;
   }
 
   @media (min-width: 640px) {
@@ -114,6 +117,16 @@
     html::-webkit-scrollbar {
       display: none;
     }
+  }
+
+  /* Images and canvases take no pointer (so no "Save image as"), can't be dragged out, selected
+     or long-pressed on iOS. App.tsx also blocks their context menu. */
+  img,
+  canvas {
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-drag: none;
+    -webkit-touch-callout: none;
   }
 
   body {
@@ -175,6 +188,10 @@
     font-size: 11px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
+  }
+
+  [data-note]::before {
+    content: attr(data-note);
   }
 
   .grain {

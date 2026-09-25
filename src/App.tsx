@@ -1,5 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useInsertionEffect } from 'react'
 import { Nav } from './components/Nav'
+import { MailComposer } from './components/MailComposer'
 import { ScrollBar } from './components/ScrollBar'
 import { ScrollProgress } from './components/ScrollProgress'
 import { Hero } from './sections/Hero'
@@ -11,18 +12,38 @@ import { Journey } from './sections/Journey'
 import { OpenToWork } from './sections/OpenToWork'
 import { Contact } from './sections/Contact'
 import { Footer } from './sections/Footer'
-import { MQ, ScrollTrigger, gsap, useGSAP } from './lib/gsap'
+import { MQ, ScrollTrigger, gsap, setupsDone, useLazyGSAP } from './lib/gsap'
 import { interceptAnchors } from './lib/scroll'
 import { initStepper } from './lib/stepper'
 import { initAnalytics } from './lib/analytics'
+import { progress } from './lib/boot'
+
+/** Images and canvases can't be saved from the context menu or dragged out (with the CSS in index.css). */
+function protectImages() {
+  const block = (e: Event) => {
+    if ((e.target as Element | null)?.closest?.('img, canvas, picture')) e.preventDefault()
+  }
+  document.addEventListener('contextmenu', block)
+  document.addEventListener('dragstart', block)
+  return () => {
+    document.removeEventListener('contextmenu', block)
+    document.removeEventListener('dragstart', block)
+  }
+}
 
 export function App() {
+  // the build prerenders this page for crawlers and keeps that copy out of rendering; the app has
+  // replaced it now. An insertion effect runs before any section measures its layout.
+  useInsertionEffect(() => document.getElementById('root')?.removeAttribute('data-prerendered'), [])
   useEffect(() => interceptAnchors(), [])
-  // after every section has created its pins and registered its stops
+  // sections register their stops and pins as they set up; the stepper reads them when it steps
   useEffect(() => initStepper(), [])
+  // the loader holds until the sections below the fold have set up, so the intro never shares frames with that work
+  useEffect(() => void setupsDone().then(() => progress('app', 1)), [])
   useEffect(() => initAnalytics(), [])
+  useEffect(() => protectImages(), [])
 
-  useGSAP(() => {
+  useLazyGSAP(() => {
     // Margin notes drift at their own speed, like the reference's floating notation.
     const mm = gsap.matchMedia()
     mm.add(MQ.motion, () => {
@@ -68,6 +89,7 @@ export function App() {
         <Contact />
       </main>
       <Footer />
+      <MailComposer />
     </>
   )
 }

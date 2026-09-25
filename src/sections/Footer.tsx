@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, ArrowUpRight, Download } from 'lucide-react'
 import { BrandIcon } from '../components/BrandIcon'
 import { HeroScene } from './Hero'
-import { EASE, MQ, SplitText, gsap, useGSAP } from '../lib/gsap'
+import { EASE, MQ, SplitText, gsap, useLazyGSAP } from '../lib/gsap'
 import { nav, profile } from '../data/resume'
-import type { SceneControls } from '../three/state'
+import type { SceneControls } from '../scene/state'
 
 const footerControls: SceneControls = { intro: { v: 0 }, scroll: { v: 0 } }
 
@@ -34,7 +34,7 @@ function FooterLink({ href, children, external, download }: { href: string; chil
         <span className="absolute -bottom-1 left-0 h-px w-full origin-right scale-x-0 bg-ice transition-transform duration-700 ease-[cubic-bezier(0.65,0,0.35,1)] group-hover:origin-left group-hover:scale-x-100" />
       </span>
       {external && (
-        <ArrowUpRight size={15} className="text-muted transition-all duration-700 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-ice" />
+        <ArrowUpRight size={15} className="text-muted transition-[translate,color] duration-700 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-ice" />
       )}
       {download && <Download size={14} className="text-muted transition-colors duration-700 group-hover:text-ice" />}
     </a>
@@ -46,7 +46,7 @@ export function Footer() {
   const year = new Date().getFullYear()
   const shortName = profile.name.split(' ').slice(0, 2).join(' ')
 
-  useGSAP(
+  useLazyGSAP(
     () => {
       const q = gsap.utils.selector(root)
       const stage = q('[data-stage]')[0]!
@@ -58,10 +58,11 @@ export function Footer() {
           { y: 44, autoAlpha: 0 },
           { y: 0, autoAlpha: 1, duration: 1.7, stagger: 0.12, ease: EASE.rise, scrollTrigger: { trigger: root.current, start: 'top 82%', once: true } },
         )
+        // on arrival, in real time: the black hole dawns and the name climbs in letter by letter
         gsap.fromTo(
           footerControls.intro,
           { v: 0 },
-          { v: 1, ease: 'none', scrollTrigger: { trigger: stage, start: 'top bottom', end: 'bottom bottom', scrub: 1.2 } },
+          { v: 1, duration: 3.2, ease: 'power2.out', scrollTrigger: { trigger: stage, start: 'top 75%', toggleActions: 'play none none none' } },
         )
         SplitText.create(q('[data-wordmark]')[0]!, {
           type: 'chars',
@@ -75,9 +76,11 @@ export function Footer() {
               {
                 yPercent: 0,
                 y: 0,
-                ease: 'none',
-                stagger: 0.05,
-                scrollTrigger: { trigger: stage, start: 'top 80%', end: 'bottom bottom', scrub: 1.4 },
+                duration: 1.5,
+                ease: EASE.rise,
+                stagger: 0.06,
+                delay: 0.3,
+                scrollTrigger: { trigger: stage, start: 'top 75%', toggleActions: 'play none none none' },
               },
             ),
         })
@@ -106,7 +109,7 @@ export function Footer() {
             <span className="font-serif text-[1.5rem] leading-none text-fg">{profile.name}</span>
           </div>
           <p className="mt-5 hidden text-[14px] leading-[1.7] text-muted sm:block">
-            Full-stack, mobile &amp; AI developer building fast, thoughtful products — from {profile.location.split(',')[0]} to anywhere.
+            Full-stack developer and DevOps engineer. I build products and ship them to the cloud, for teams anywhere.
           </p>
           <p className="mono-label mt-4 inline-flex items-center gap-2 rounded-full sm:mt-6 border border-white/10 bg-white/[0.03] px-3 py-2 text-[10px] text-soft">
             <span className="relative flex size-1.5">
@@ -161,7 +164,7 @@ export function Footer() {
               <p className="font-serif text-[2rem] leading-none text-fg sm:text-[2.4rem] 3xl:text-[2.8rem]">
                 <LocalTime />
               </p>
-              <p className="mono-label mt-3 text-[10px] text-muted">{profile.location} · IST</p>
+              <p className="mono-label mt-3 text-[10px] text-muted">IST · UTC+5:30</p>
             </div>
             <p className="mt-6 hidden text-[13px] leading-[1.6] text-muted sm:block">Usually replies within a day.</p>
             <div className="flex gap-2 sm:mt-6">
@@ -211,7 +214,7 @@ export function Footer() {
         <p className="mono-label text-[10px] text-muted">
           © {year} {profile.name}
         </p>
-        <p className="mono-label hidden text-[10px] text-dim md:block">Designed &amp; engineered with React, GSAP &amp; three.js</p>
+        <p className="mono-label hidden text-[10px] text-muted md:block">Designed &amp; engineered with React, GSAP &amp; WebGL</p>
         <a href="#home" className="group mono-label inline-flex items-center gap-3 text-[10px] text-soft transition-colors duration-500 hover:text-white">
           Back to top
           <span className="btn btn-dark btn-icon !size-9">

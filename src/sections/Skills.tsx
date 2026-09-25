@@ -2,8 +2,8 @@ import { useRef } from 'react'
 import { Notes } from '../components/Notes'
 import { SectionHeader } from '../components/SectionHeader'
 import { Starfield } from '../components/Starfield'
-import { MQ, gsap, useGSAP } from '../lib/gsap'
-import { addStops } from '../lib/stepper'
+import { MQ, gsap, useLazyGSAP } from '../lib/gsap'
+import { sectionStops } from '../lib/stepper'
 import { languages, profile, skills } from '../data/resume'
 
 /*
@@ -51,7 +51,7 @@ function Hexagon() {
 export function Skills() {
   const root = useRef<HTMLElement>(null)
 
-  useGSAP(
+  useLazyGSAP(
     () => {
       const q = gsap.utils.selector(root)
       const circles = q('[data-circle]')
@@ -90,13 +90,11 @@ export function Skills() {
         return tl
       }
 
+      // Desktop: one screen, one stop — the diagram builds itself in real time as the page
+      // arrives (a ~3s sequence), so however fast the glide, the build is seen in full.
       mm.add(MQ.desktop, () => {
-        const tl = build({ trigger: q('[data-stage]')[0], start: 'top top', end: '+=120%', pin: true, scrub: 1.2, invalidateOnRefresh: true }).to(
-          {},
-          { duration: 0.8 },
-        )
-        // one resting point, with the diagram complete: the build plays during the glide in
-        return addStops(() => (tl.scrollTrigger ? [tl.scrollTrigger.end] : []))
+        build({ trigger: q('[data-stage]')[0], start: 'top 55%', toggleActions: 'play none none none' }).timeScale(1.05)
+        return sectionStops(root.current!)
       })
       mm.add(MQ.compact, () => {
         build({ trigger: q('[data-stage]')[0], start: 'top 80%', end: 'center 45%', scrub: 1, invalidateOnRefresh: true })
@@ -111,7 +109,7 @@ export function Skills() {
       {/* title and diagram share one pinned screen, so every resting point shows both */}
       <div
         data-stage
-        className="relative flex min-h-[100svh] flex-col items-center justify-center overflow-hidden py-20 lg:max-h-[1400px] lg:py-[clamp(2.25rem,5.5svh,6.5rem)]"
+        className="relative flex min-h-[100svh] flex-col items-center justify-center overflow-hidden py-20 lg:max-h-[1400px] lg:pt-[max(4.5rem,6svh)] lg:pb-[clamp(1.5rem,5.5svh,6.5rem)]"
       >
         <Starfield density={0.22} sparkles={3} maxY={1} seed={21} />
         <Notes
@@ -122,7 +120,7 @@ export function Skills() {
           ]}
         />
         <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[55%]" style={{ background: 'var(--stage-glow)' }} />
-        <div className="relative z-10 px-5 sm:px-8">
+        <div className="relative z-10 px-5 sm:px-8 tight:[zoom:0.9] tighter:[zoom:0.82]">
           <SectionHeader
             id="skills-title"
             label="What I do"
@@ -137,7 +135,7 @@ export function Skills() {
 
         {/* The diagram: hexagon, circles and avatar all share this box and its centre.
             On desktop it takes the height the title leaves (the flower is 0.79× its width). */}
-        <div className="@container relative mt-12 w-[min(88vw,620px)] lg:mt-[clamp(1.25rem,3svh,3rem)] lg:w-[min(46vw,max(28rem,calc((100svh-28rem)*1.27)),760px)]">
+        <div className="@container relative mt-12 w-[min(88vw,620px)] lg:mt-[clamp(1.25rem,3svh,3rem)] lg:w-[min(46vw,max(28rem,calc((100svh-28rem)*1.27)),760px)] tight:[zoom:0.9] tighter:[zoom:0.82]">
           {/* the guide line runs through the diagram, behind the circles — not through the title */}
           <div data-spine aria-hidden className="absolute -top-[6%] -bottom-[40%] left-1/2 w-px origin-top bg-white/[0.06]" />
           <div data-flower className="relative w-full" style={{ aspectRatio: `${W} / ${H}` }}>
@@ -148,7 +146,7 @@ export function Skills() {
                 <div
                   key={s.title}
                   data-circle
-                  className="group absolute flex aspect-square flex-col items-center justify-center rounded-full border border-white/[0.07] bg-[var(--circle-bg)] text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-[2px] transition-[border-color,background-color,box-shadow] duration-700 hover:z-10 hover:border-accent/60 hover:bg-[var(--circle-bg-hover)] hover:shadow-[0_0_40px_-6px_rgb(var(--accent-rgb)/0.55),inset_0_1px_0_rgba(255,255,255,0.08)]"
+                  className="group absolute flex aspect-square flex-col items-center justify-center rounded-full border border-white/[0.07] bg-[var(--circle-bg)] text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-[border-color,background-color,box-shadow] duration-700 hover:z-10 hover:border-accent/60 hover:bg-[var(--circle-bg-hover)] hover:shadow-[0_0_40px_-6px_rgb(var(--accent-rgb)/0.55),inset_0_1px_0_rgba(255,255,255,0.08)]"
                   style={{ left: pct(c.x, W), top: pct(c.y, H), width: pct(2 * R, W) }}
                 >
                   <span className="font-mono text-[max(9px,2.2cqw)] tracking-[0.08em] text-muted">[{s.index}]</span>

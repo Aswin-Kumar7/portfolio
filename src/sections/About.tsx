@@ -4,8 +4,8 @@ import { siTypescript } from 'simple-icons'
 import { ButtonLink, ButtonPair, IconLink } from '../components/Button'
 import { Notes } from '../components/Notes'
 import { ScriptLabel } from '../components/SplitHeading'
-import { MQ, gsap, useGSAP } from '../lib/gsap'
-import { pinStops } from '../lib/stepper'
+import { MQ, gsap, useLazyGSAP } from '../lib/gsap'
+import { pinRange } from '../lib/stepper'
 import { Toolbelt } from './Toolbelt'
 import { about, profile } from '../data/resume'
 
@@ -29,7 +29,7 @@ export function About() {
   const root = useRef<HTMLElement>(null)
   const parts = about.text.split(/\s+/)
 
-  useGSAP(
+  useLazyGSAP(
     () => {
       const q = gsap.utils.selector(root)
       const tokens = q('[data-token]')
@@ -42,7 +42,7 @@ export function About() {
         const tl = gsap.timeline({
           defaults: { ease: 'none' },
           scrollTrigger: pinned
-            ? { trigger: root.current, start: 'top top', end: '+=160%', pin: true, scrub: 1.2 }
+            ? { trigger: root.current, start: 'top top', end: '+=80%', pin: true, scrub: 1.2 }
             : { trigger: q('[data-about-text]')[0], start: 'top 82%', end: 'bottom 45%', scrub: 1 },
         })
         tokens.forEach((el, i) => {
@@ -63,8 +63,8 @@ export function About() {
         return tl
       }
 
-      // two resting points: the paragraph waiting in ash, then lit
-      mm.add(MQ.desktop, () => pinStops(build(true).scrollTrigger))
+      // scroll-driven: the wheel lights the words at the reader's pace; the page snaps only at its ends
+      mm.add(MQ.desktop, () => pinRange(build(true).scrollTrigger))
       mm.add(MQ.compact, () => build(false))
       return () => mm.revert()
     },
@@ -87,7 +87,7 @@ export function About() {
         ]}
       />
 
-      <div className="flex flex-1 flex-col items-center justify-center px-5 py-24 sm:px-8 md:py-[clamp(4.5rem,10svh,8rem)]">
+      <div className="flex flex-1 flex-col items-center justify-center px-5 py-24 sm:px-8 md:py-[clamp(3rem,8svh,8rem)]">
         <div className="text-center">
           <h2 id="about-title" className="sr-only">
             About me
@@ -96,7 +96,7 @@ export function About() {
         </div>
         <p
           data-about-text
-          className="mx-auto mt-4 max-w-[23em] text-center font-serif text-[clamp(1.6rem,1rem+2vw,3.1rem)] leading-[1.28] tracking-[-0.01em] text-balance text-fg"
+          className="mx-auto mt-4 max-w-[23em] text-center font-serif text-[clamp(1.6rem,min(1rem+2vw,6.4svh),3.1rem)] leading-[1.28] tracking-[-0.01em] text-balance text-fg"
         >
           {parts.map((word, i) => {
             const sep = i < parts.length - 1 ? ' ' : ''

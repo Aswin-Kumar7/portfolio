@@ -59,7 +59,7 @@ const nebula: AuroraPreset['colors'] = {
   sun: '#1a4cc0',
 }
 
-/** The long-exposure streak look (hero and footer). */
+/** The long-exposure streak look (the hero sky fallback, cards and tiles). */
 const streaks = {
   curve: 0.5,
   angle: -0.08,
@@ -149,23 +149,6 @@ export const presets = {
     fallback: 'linear-gradient(180deg, #123a86 0%, #0c2459 35%, #0a1b44 60%, #070c17 90%)',
   }),
 
-  /** Timeline highlight card: puffy clouds with stars. */
-  clouds: define({
-    colors: { ...nebula, zenith: '#0a1a4a', zenith2: '#16357f', sky: '#123070', haze: '#2b64c9', shade: '#1b3b8c', lit: '#3a86ff', hi: '#bde6ff', base: '#070c17' },
-    vanish: [0.5, 0.0],
-    scale: 1.2,
-    stretch: 1.6,
-    puff: 0.85,
-    coverage: 0.52,
-    softness: 0.2,
-    band: 0,
-    speed: 0.05,
-    stars: 1.2,
-    vignette: 0.1,
-    renderScale: 0.9,
-    fallback: 'linear-gradient(100deg, #0a1a4a 0%, #16357f 45%, #2b64c9 80%, #3a86ff 100%)',
-  }),
-
   /** Achievement tiles. */
   tileViolet: define({
     ...streaks,
@@ -199,24 +182,6 @@ export const presets = {
   }),
 
   // ---- project covers: nebula cores in different blues ---------------------
-  coverSunset: define({
-    ...COVER,
-    colors: { zenith: '#0a1e4f', zenith2: '#12306e', sky: '#2f63c8', haze: '#7cc6ff', shade: '#2b58b0', lit: '#6fb4ff', hi: '#dff3ff', base: '#040a1a', sun: '#bfeaff' },
-    vanish: [0.5, 0.45],
-    stretch: 3,
-    scale: 0.7,
-    vignette: 0.3,
-    fallback: 'linear-gradient(180deg, #0a1e4f 0%, #2f63c8 35%, #7cc6ff 48%, #2f55c4 52%, #040a1a 100%)',
-  }),
-  coverDusk: define({
-    ...COVER,
-    colors: { zenith: '#1a2f6e', zenith2: '#2b4a94', sky: '#6f97dc', haze: '#b9dcff', shade: '#5f84cc', lit: '#a9cfff', hi: '#f0f8ff', base: '#08112a', sun: '#e6f6ff' },
-    vanish: [0.42, 0.4],
-    stretch: 2.4,
-    scale: 0.8,
-    vignette: 0.3,
-    fallback: 'linear-gradient(180deg, #1a2f6e 0%, #6f97dc 38%, #b9dcff 48%, #4a6fd0 55%, #08112a 100%)',
-  }),
   coverTwilight: define({
     ...COVER,
     colors: { zenith: '#050b2c', zenith2: '#0e1a55', sky: '#1d3a94', haze: '#3b7ee8', shade: '#1a3589', lit: '#3f86ff', hi: '#a8d8ff', base: '#030616', sun: '#5aa8ff' },
@@ -243,29 +208,6 @@ export const presets = {
     scale: 0.75,
     vignette: 0.25,
     fallback: 'linear-gradient(180deg, #243e7c 0%, #8fb2e6 38%, #e0efff 48%, #5b7fd6 55%, #0d1733 100%)',
-  }),
-  coverNight: define({
-    ...COVER,
-    colors: { zenith: '#01030f', zenith2: '#050b26', sky: '#0b1a4a', haze: '#1b3f99', shade: '#0e2468', lit: '#2458d6', hi: '#8ab8ff', base: '#010208', sun: '#3a74e0' },
-    vanish: [0.5, 0.4],
-    stretch: 5,
-    scale: 0.5,
-    vignette: 0.35,
-    fallback: 'linear-gradient(180deg, #01030f 0%, #0b1a4a 38%, #1b3f99 48%, #122f7a 55%, #010208 100%)',
-  }),
-
-  /** Footer horizon glow. */
-  footer: define({
-    ...streaks,
-    colors: nebula,
-    vanish: [0.5, 0.12],
-    curve: -0.35,
-    band: 0,
-    fadeTop: [0.45, 1.0],
-    stars: 0.7,
-    vignette: 0.3,
-    renderScale: 0.7,
-    fallback: 'linear-gradient(0deg, #1d4fb8 0%, #0c2459 35%, #030a22 70%, #02040b 100%)',
   }),
 } satisfies Record<string, AuroraPreset>
 

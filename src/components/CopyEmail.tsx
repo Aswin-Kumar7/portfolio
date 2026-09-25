@@ -40,19 +40,19 @@ export function CopyEmail({ email, variant = 'glow', label = 'hero' }: { email: 
           <Copy
             size={17}
             strokeWidth={1.8}
-            className={cn('absolute inset-0 transition-all duration-500', copied ? 'scale-50 opacity-0' : 'scale-100 opacity-100')}
+            className={cn('absolute inset-0 transition-[scale,opacity] duration-500', copied ? 'scale-50 opacity-0' : 'scale-100 opacity-100')}
           />
           <Check
             size={17}
             strokeWidth={2}
-            className={cn('absolute inset-0 transition-all duration-500', copied ? 'scale-100 opacity-100' : 'scale-50 opacity-0')}
+            className={cn('absolute inset-0 transition-[scale,opacity] duration-500', copied ? 'scale-100 opacity-100' : 'scale-50 opacity-0')}
           />
         </span>
       </button>
       <span
         role="status"
         className={cn(
-          'mono-label pointer-events-none absolute top-full left-1/2 mt-3 -translate-x-1/2 rounded-full bg-black/55 px-3 py-1.5 text-[10px] whitespace-nowrap text-white ring-1 ring-white/10 backdrop-blur-md transition-all duration-500',
+          'mono-label pointer-events-none absolute top-full left-1/2 mt-3 -translate-x-1/2 rounded-full bg-black/75 px-3 py-1.5 text-[10px] whitespace-nowrap text-white ring-1 ring-white/10 transition-[translate,opacity] duration-500',
           copied ? 'translate-y-0 opacity-100' : '-translate-y-1 opacity-0',
         )}
       >

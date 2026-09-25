@@ -1,34 +1,22 @@
-import {
-  Mesh,
-  OrthographicCamera,
-  PlaneGeometry,
-  Scene,
-  ShaderMaterial,
-  Vector2,
-  Vector3,
-  Vector4,
-  WebGLRenderer,
-  type IUniform,
-} from 'three'
+import { GL, type Program } from '../scene/gl'
 import { fragmentShader, vertexShader } from './shader'
 import type { AuroraPreset } from './presets'
 
 /**
  * One WebGL context for the whole page.
  *
- * Every <Aurora> surface (hero sky, cards, project covers…) registers a plain
- * 2D canvas. Each frame the shared three.js renderer draws the scene for every
- * *visible* target into a scratch viewport and blits it into that target's
- * canvas. This sidesteps per-page context limits (mobile Safari caps them low),
- * keeps shader compilation to a single program, and lets off-screen surfaces
- * cost nothing.
+ * Every <Aurora> surface (cards, tiles, project covers…) registers a plain 2D canvas.
+ * Each frame the shared context draws the scene for every *visible* target into a
+ * scratch viewport and blits it into that target's canvas. This sidesteps per-page
+ * context limits (mobile Safari caps them low), keeps shader compilation to a single
+ * program, and lets off-screen surfaces cost nothing.
  */
 
 interface AttachOptions {
   preset: AuroraPreset
   seed?: number
   interactive?: boolean
-  /** Canvases that receive a downscaled copy of every frame (e.g. a blurred backdrop). */
+  /** Canvases that receive a downscaled copy (e.g. a blurred backdrop). */
   mirrors?: HTMLCanvasElement[]
   onReady?: () => void
 }
@@ -37,6 +25,7 @@ interface Target {
   canvas: HTMLCanvasElement
   ctx: CanvasRenderingContext2D
   preset: AuroraPreset
+  colors: Record<keyof AuroraPreset['colors'], [number, number, number]>
   seed: number
   interactive: boolean
   mirrors: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D }[]
@@ -49,21 +38,24 @@ interface Target {
   dirty: boolean
   ready: boolean
   last: number
-  mouse: Vector2
+  mirrored: number
+  mouse: { x: number; y: number }
 }
 
-const hex = (value: string) => {
+const hex = (value: string): [number, number, number] => {
   const n = Number.parseInt(value.replace('#', ''), 16)
-  return new Vector3(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255)
+  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]
 }
 
 const MAX_SIDE = 1800
+/** Blurred backdrops don't need every frame: under an 18px blur, a few updates a second look the same. */
+const MIRROR_INTERVAL = 250
 
 class AuroraEngine {
-  private renderer: WebGLRenderer
-  private scene = new Scene()
-  private camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1)
-  private uniforms: Record<string, IUniform>
+  private canvas = document.createElement('canvas')
+  private g: GL
+  private program: Program
+  private compiled = false
   private targets = new Set<Target>()
   private byCanvas = new Map<Element, Target>()
   private io: IntersectionObserver
@@ -76,82 +68,27 @@ class AuroraEngine {
   private frameTimes: number[] = []
   private lastTick = 0
   private lost = false
-  private pointer = new Vector2()
+  private pointer = { x: 0, y: 0 }
   private reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
   private coarse = window.matchMedia('(pointer: coarse)').matches
 
   constructor() {
-    this.renderer = new WebGLRenderer({
-      antialias: false,
-      alpha: false,
-      depth: false,
-      stencil: false,
-      powerPreference: 'high-performance',
-      preserveDrawingBuffer: false,
-    })
-    this.renderer.setPixelRatio(1)
-    this.renderer.setSize(1, 1, false)
-
-    this.uniforms = {
-      uRes: { value: new Vector2(1, 1) },
-      uTime: { value: 0 },
-      uSeed: { value: 0 },
-      uCrop: { value: new Vector4(0, 0, 1, 1) },
-      uAspect: { value: 1 },
-      uMouse: { value: new Vector2() },
-      uZenith: { value: new Vector3() },
-      uZenith2: { value: new Vector3() },
-      uSky: { value: new Vector3() },
-      uHaze: { value: new Vector3() },
-      uShade: { value: new Vector3() },
-      uLit: { value: new Vector3() },
-      uHi: { value: new Vector3() },
-      uBase: { value: new Vector3() },
-      uSunCol: { value: new Vector3() },
-      uVanish: { value: new Vector2() },
-      uStretch: { value: 1 },
-      uAngle: { value: 0 },
-      uScale: { value: 1 },
-      uCoverage: { value: 0.5 },
-      uSoftness: { value: 0.2 },
-      uOpacity: { value: 1 },
-      uSpeed: { value: 0 },
-      uPuff: { value: 0 },
-      uWarp: { value: 1 },
-      uBand: { value: 1 },
-      uFade: { value: new Vector2() },
-      uFadeTop: { value: new Vector2(2, 3) },
-      uStars: { value: 0 },
-      uSun: { value: new Vector3() },
-      uVignette: { value: 0 },
-      uGlow: { value: 0 },
-      uCurve: { value: 0 },
-      uPink: { value: 0 },
-      uTopDim: { value: 0.45 },
-    }
-
-    const material = new ShaderMaterial({
-      vertexShader,
-      fragmentShader,
-      uniforms: this.uniforms,
-      depthTest: false,
-      depthWrite: false,
-    })
-    const quad = new Mesh(new PlaneGeometry(2, 2), material)
-    quad.frustumCulled = false
-    this.scene.add(quad)
-    this.renderer.compile(this.scene, this.camera)
+    this.g = new GL(this.canvas)
+    this.program = this.g.program(vertexShader, fragmentShader)
+    this.canvas.width = this.canvas.height = 1
 
     this.io = new IntersectionObserver(this.onIntersect, { rootMargin: '120px 0px' })
     this.ro = new ResizeObserver(this.onResize)
 
-    const el = this.renderer.domElement
-    el.addEventListener('webglcontextlost', (e) => {
+    this.canvas.addEventListener('webglcontextlost', (e) => {
       e.preventDefault()
       this.lost = true
     })
-    el.addEventListener('webglcontextrestored', () => {
+    this.canvas.addEventListener('webglcontextrestored', () => {
       this.lost = false
+      this.g = new GL(this.canvas)
+      this.program = this.g.program(vertexShader, fragmentShader)
+      this.compiled = false
       this.targets.forEach((t) => (t.dirty = true))
       this.ensureLoop()
     })
@@ -174,10 +111,12 @@ class AuroraEngine {
       const mctx = m.getContext('2d', { alpha: false })
       return mctx ? [{ canvas: m, ctx: mctx }] : []
     })
+    const c = opts.preset.colors
     const target: Target = {
       canvas,
       ctx,
       preset: opts.preset,
+      colors: Object.fromEntries(Object.entries(c).map(([k, v]) => [k, hex(v)])) as Target['colors'],
       seed: opts.seed ?? 0,
       interactive: !!opts.interactive,
       mirrors,
@@ -190,7 +129,8 @@ class AuroraEngine {
       dirty: true,
       ready: false,
       last: 0,
-      mouse: new Vector2(),
+      mirrored: 0,
+      mouse: { x: 0, y: 0 },
     }
     this.targets.add(target)
     this.byCanvas.set(canvas, target)
@@ -232,6 +172,7 @@ class AuroraEngine {
         m.canvas.height = Math.max(4, Math.round(h / 4))
       }
       t.dirty = true
+      t.mirrored = 0
     }
   }
 
@@ -254,7 +195,8 @@ class AuroraEngine {
   }
 
   private onPointer = (e: PointerEvent) => {
-    this.pointer.set((e.clientX / window.innerWidth) * 2 - 1, -((e.clientY / window.innerHeight) * 2 - 1))
+    this.pointer.x = (e.clientX / window.innerWidth) * 2 - 1
+    this.pointer.y = -((e.clientY / window.innerHeight) * 2 - 1)
   }
 
   // -------------------------------------------------------------------- loop
@@ -270,6 +212,19 @@ class AuroraEngine {
   private tick = (now: number) => {
     this.raf = 0
     if (this.lost) return
+    // the program compiles off the main thread where supported; poll until it's linked
+    if (!this.compiled) {
+      try {
+        this.compiled = this.program.ready()
+      } catch (err) {
+        console.warn('[aurora] shader failed, using CSS fallback.', err)
+        return
+      }
+      if (!this.compiled) {
+        this.ensureLoop()
+        return
+      }
+    }
 
     const still = this.reducedMotion.matches
     const time = still ? 12 : (now - this.start) / 1000
@@ -284,7 +239,7 @@ class AuroraEngine {
       const due = t.dirty || (animating && now - t.last >= 1000 / fps - 2)
       if (!due) continue
       if (t.w * t.h > 250_000) heavy = true
-      this.draw(t, time)
+      this.draw(t, time, now)
       t.last = now
       t.dirty = false
       if (!t.ready) {
@@ -298,7 +253,7 @@ class AuroraEngine {
     if (anyAnimating) this.raf = requestAnimationFrame(this.tick)
   }
 
-  /** Drop resolution if the device can't hold ~45fps with the hero on screen. */
+  /** Drop resolution if the device can't hold ~45fps with a large surface on screen. */
   private trackPerformance(now: number) {
     if (this.lastTick) this.frameTimes.push(now - this.lastTick)
     if (this.frameTimes.length < 90) return
@@ -311,75 +266,76 @@ class AuroraEngine {
     }
   }
 
-  private draw(t: Target, time: number) {
+  private draw(t: Target, time: number, now: number) {
+    const { g } = this
+    const gl = g.gl
     if (t.w > this.glW || t.h > this.glH) {
       this.glW = Math.max(this.glW, t.w)
       this.glH = Math.max(this.glH, t.h)
-      this.renderer.setSize(this.glW, this.glH, false)
+      this.canvas.width = this.glW
+      this.canvas.height = this.glH
     }
 
-    if (t.interactive) t.mouse.lerp(this.pointer, 0.04)
+    if (t.interactive) {
+      t.mouse.x += (this.pointer.x - t.mouse.x) * 0.04
+      t.mouse.y += (this.pointer.y - t.mouse.y) * 0.04
+    }
+    this.program.use()
     this.apply(t, time)
-
-    this.renderer.setViewport(0, 0, t.w, t.h)
-    this.renderer.setScissor(0, 0, t.w, t.h)
-    this.renderer.setScissorTest(true)
-    this.renderer.render(this.scene, this.camera)
+    g.bind(null, t.w, t.h)
+    gl.enable(gl.SCISSOR_TEST)
+    gl.scissor(0, 0, t.w, t.h)
+    g.draw()
+    gl.disable(gl.SCISSOR_TEST)
 
     // WebGL's origin is bottom-left; our viewport lives in the canvas' bottom rows.
-    t.ctx.drawImage(this.renderer.domElement, 0, this.glH - t.h, t.w, t.h, 0, 0, t.w, t.h)
-    for (const m of t.mirrors) m.ctx.drawImage(t.canvas, 0, 0, m.canvas.width, m.canvas.height)
+    t.ctx.drawImage(this.canvas, 0, this.glH - t.h, t.w, t.h, 0, 0, t.w, t.h)
+    if (t.mirrors.length && now - t.mirrored >= MIRROR_INTERVAL) {
+      for (const m of t.mirrors) m.ctx.drawImage(t.canvas, 0, 0, m.canvas.width, m.canvas.height)
+      t.mirrored = now
+    }
   }
 
   private apply(t: Target, time: number) {
     const p = t.preset
-    const u = this.uniforms
-    const c = p.colors
-    ;(u.uRes!.value as Vector2).set(t.w, t.h)
-    u.uTime!.value = time + t.seed * 17.0
-    u.uSeed!.value = t.seed
-    u.uAspect!.value = t.cssW / Math.max(t.cssH, 1)
-    ;(u.uMouse!.value as Vector2).copy(t.mouse)
-    ;(u.uZenith!.value as Vector3).copy(hexCache(c.zenith))
-    ;(u.uZenith2!.value as Vector3).copy(hexCache(c.zenith2))
-    ;(u.uSky!.value as Vector3).copy(hexCache(c.sky))
-    ;(u.uHaze!.value as Vector3).copy(hexCache(c.haze))
-    ;(u.uShade!.value as Vector3).copy(hexCache(c.shade))
-    ;(u.uLit!.value as Vector3).copy(hexCache(c.lit))
-    ;(u.uHi!.value as Vector3).copy(hexCache(c.hi))
-    ;(u.uBase!.value as Vector3).copy(hexCache(c.base))
-    ;(u.uSunCol!.value as Vector3).copy(hexCache(c.sun))
-    ;(u.uVanish!.value as Vector2).set(p.vanish[0], p.vanish[1])
-    u.uStretch!.value = p.stretch
-    u.uAngle!.value = p.angle
-    u.uScale!.value = p.scale
-    u.uCoverage!.value = p.coverage
-    u.uSoftness!.value = p.softness
-    u.uOpacity!.value = p.opacity
-    u.uSpeed!.value = p.speed
-    u.uPuff!.value = p.puff
-    u.uWarp!.value = p.warp
-    u.uBand!.value = p.band
-    ;(u.uFade!.value as Vector2).set(p.fade[0], p.fade[1])
-    ;(u.uFadeTop!.value as Vector2).set(p.fadeTop[0], p.fadeTop[1])
-    u.uStars!.value = p.stars
-    ;(u.uSun!.value as Vector3).set(p.sun[0], p.sun[1], p.sun[2])
-    u.uVignette!.value = p.vignette
-    u.uGlow!.value = p.glow
-    u.uCurve!.value = p.curve
-    u.uPink!.value = p.pink
-    u.uTopDim!.value = p.topDim
+    const u = this.program
+    const c = t.colors
+    u.u2f('uRes', t.w, t.h)
+    u.u1f('uTime', time + t.seed * 17.0)
+    u.u1f('uSeed', t.seed)
+    u.u4f('uCrop', 0, 0, 1, 1)
+    u.u1f('uAspect', t.cssW / Math.max(t.cssH, 1))
+    u.u2f('uMouse', t.mouse.x, t.mouse.y)
+    u.u3f('uZenith', ...c.zenith)
+    u.u3f('uZenith2', ...c.zenith2)
+    u.u3f('uSky', ...c.sky)
+    u.u3f('uHaze', ...c.haze)
+    u.u3f('uShade', ...c.shade)
+    u.u3f('uLit', ...c.lit)
+    u.u3f('uHi', ...c.hi)
+    u.u3f('uBase', ...c.base)
+    u.u3f('uSunCol', ...c.sun)
+    u.u2f('uVanish', p.vanish[0], p.vanish[1])
+    u.u1f('uStretch', p.stretch)
+    u.u1f('uAngle', p.angle)
+    u.u1f('uScale', p.scale)
+    u.u1f('uCoverage', p.coverage)
+    u.u1f('uSoftness', p.softness)
+    u.u1f('uOpacity', p.opacity)
+    u.u1f('uSpeed', p.speed)
+    u.u1f('uPuff', p.puff)
+    u.u1f('uWarp', p.warp)
+    u.u1f('uBand', p.band)
+    u.u2f('uFade', p.fade[0], p.fade[1])
+    u.u2f('uFadeTop', p.fadeTop[0], p.fadeTop[1])
+    u.u1f('uStars', p.stars)
+    u.u3f('uSun', p.sun[0], p.sun[1], p.sun[2])
+    u.u1f('uVignette', p.vignette)
+    u.u1f('uGlow', p.glow)
+    u.u1f('uCurve', p.curve)
+    u.u1f('uPink', p.pink)
+    u.u1f('uTopDim', p.topDim)
   }
-}
-
-const cache = new Map<string, Vector3>()
-function hexCache(value: string) {
-  let v = cache.get(value)
-  if (!v) {
-    v = hex(value)
-    cache.set(value, v)
-  }
-  return v
 }
 
 let instance: AuroraEngine | null | undefined

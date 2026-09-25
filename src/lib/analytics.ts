@@ -1,31 +1,45 @@
+import Clarity from '@microsoft/clarity'
+import { inject as startVercel, track as vercelTrack } from '@vercel/analytics'
+
 /*
- * Analytics. Events are forwarded to whichever tool is on the page — Google Tag
- * Manager (dataLayer), GA4 (gtag), Umami or Plausible — so dropping any of their
- * snippets into index.html is all it takes.
+ * Analytics.
  *
- * Events: resume_download · contact_click · copy_email · project_open ·
+ * Vercel Web Analytics (page views, visitors, referrers, countries, devices) starts in
+ * production builds on aswinkumar.dev; Vercel serves its script first-party from /_vercel/insights.
+ * Every event below is also sent to it as a custom event (recorded on Vercel's Pro plan).
+ *
+ * Microsoft Clarity (heatmaps, session recordings, scroll depth, rage clicks) starts in
+ * production builds when VITE_CLARITY_PROJECT_ID is set — so local dev and Vercel preview
+ * deployments never record sessions. Our CTA clicks become Clarity custom events.
+ *
+ * Events: resume_download · contact_click · copy_email · mail_compose · project_open ·
  *         projects_view_all · offer_cta · contact_link · footer_link ·
  *         scroll_depth · engaged_time
  */
 
 type Props = Record<string, string | number | boolean>
 
-declare global {
-  interface Window {
-    dataLayer?: Record<string, unknown>[]
-    gtag?: (command: 'event', name: string, params?: Props) => void
-    umami?: { track: (name: string, data?: Props) => void }
-    plausible?: (name: string, options?: { props?: Props }) => void
+const CLARITY_ID = import.meta.env.VITE_CLARITY_PROJECT_ID?.trim()
+let clarity = false
+/** Clarity measures these itself — no need to send them as custom events. */
+const CLARITY_NATIVE = new Set(['scroll_depth', 'engaged_time'])
+
+function startClarity() {
+  if (clarity || !import.meta.env.PROD || !CLARITY_ID) return
+  try {
+    Clarity.init(CLARITY_ID)
+    clarity = true
+  } catch {
+    // analytics must never break the page
   }
 }
 
 export function track(event: string, props: Props = {}) {
   const payload: Props = { ...props }
   try {
-    window.dataLayer?.push({ event, ...payload })
-    window.gtag?.('event', event, payload)
-    window.umami?.track(event, payload)
-    window.plausible?.(event, { props: payload })
+    if (import.meta.env.PROD && location.hostname.endsWith('aswinkumar.dev')) vercelTrack(event, payload)
+    // e.g. "contact_click:hero" — filterable in Clarity's dashboard
+    if (clarity && !CLARITY_NATIVE.has(event)) Clarity.event(payload.label ? `${event}:${payload.label}` : event)
   } catch {
     // analytics must never break the page
   }
@@ -33,6 +47,14 @@ export function track(event: string, props: Props = {}) {
 }
 
 export function initAnalytics() {
+  // Vercel's page-view script is ~1 kB and deferred: it starts straight away, so short visits count too
+  if (import.meta.env.PROD && location.hostname.endsWith('aswinkumar.dev')) startVercel({ mode: 'production', framework: 'vite' })
+
+  // Clarity loads once the page is idle, so it never competes with the intro or the 3D scenes
+  // (Safari has no requestIdleCallback — a timeout stands in)
+  const hasIdle = typeof window.requestIdleCallback === 'function'
+  const idle = hasIdle ? window.requestIdleCallback(startClarity, { timeout: 4000 }) : window.setTimeout(startClarity, 2500)
+
   // Declarative CTA tracking: <a data-track="resume_download" data-track-label="hero">
   const onClick = (e: MouseEvent) => {
     const el = (e.target as HTMLElement).closest<HTMLElement>('[data-track]')
@@ -71,6 +93,8 @@ export function initAnalytics() {
   document.addEventListener('visibilitychange', onHide)
 
   return () => {
+    if (hasIdle) window.cancelIdleCallback(idle)
+    else window.clearTimeout(idle)
     document.removeEventListener('click', onClick, true)
     window.removeEventListener('scroll', onScroll)
     document.removeEventListener('visibilitychange', onHide)

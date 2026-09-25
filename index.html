@@ -3,47 +3,152 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>Aswin Kumar B S — Full-Stack, Mobile & AI Developer</title>
+    <title>Aswin Kumar B S | Full-Stack Developer &amp; DevOps Engineer</title>
     <meta
       name="description"
-      content="Aswin Kumar B S — full-stack, mobile and AI developer from Coimbatore, India. Hackathon winner (IIT Madras BIMSTEC AI Road Safety 2026), building with React, Next.js, Node, Flutter, Python and LLMs."
+      content="Aswin Kumar B S, full-stack developer and DevOps engineer. Open to SDE, AI and DevOps roles. Projects, hackathon wins and resume."
     />
     <meta name="author" content="Aswin Kumar B S" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
     <meta name="theme-color" content="#02040b" />
     <meta name="color-scheme" content="dark" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="canonical" href="https://aswinkumar.dev/" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- the same person on other sites: helps search engines tie the profiles together -->
+    <link rel="me" href="https://github.com/Aswin-Kumar7" />
+    <link rel="me" href="https://www.linkedin.com/in/aswinkumar7/" />
 
-    <meta property="og:type" content="website" />
+    <!-- link previews (LinkedIn, X, WhatsApp, Slack…) -->
+    <meta property="og:type" content="profile" />
     <meta property="og:url" content="https://aswinkumar.dev/" />
     <meta property="og:site_name" content="Aswin Kumar B S" />
-    <meta property="og:title" content="Aswin Kumar B S — Full-Stack, Mobile & AI Developer" />
+    <meta property="og:locale" content="en_IN" />
+    <meta property="og:title" content="Aswin Kumar B S | Full-Stack Developer &amp; DevOps Engineer" />
     <meta
       property="og:description"
-      content="Full-stack, mobile & AI products that ship fast and scale cleanly. Projects, experience, hackathon wins and resume."
+      content="I build web apps end to end and keep them running in the cloud. Winner of the IIT Madras BIMSTEC AI Road Safety Hackathon 2026. Open to SDE, AI and DevOps roles."
     />
-    <meta name="twitter:card" content="summary" />
+    <meta property="og:image" content="https://aswinkumar.dev/og-image.jpg" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Aswin Kumar B S, Full-Stack Developer &amp; DevOps Engineer, with a black hole illustration" />
+    <meta property="profile:first_name" content="Aswin Kumar" />
+    <meta property="profile:last_name" content="B S" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Aswin Kumar B S | Full-Stack Developer &amp; DevOps Engineer" />
+    <meta name="twitter:description" content="I build web apps end to end and keep them running in the cloud. Open to SDE, AI and DevOps roles." />
+    <meta name="twitter:image" content="https://aswinkumar.dev/og-image.jpg" />
+    <meta name="twitter:image:alt" content="Aswin Kumar B S, Full-Stack Developer &amp; DevOps Engineer" />
 
     <link rel="preconnect" href="https://avatars.githubusercontent.com" crossorigin />
-
-    <script type="application/ld+json">
-      {
-        "@context": "https://schema.org",
-        "@type": "Person",
-        "name": "Aswin Kumar B S",
-        "jobTitle": "Full-Stack Developer",
-        "url": "https://aswinkumar.dev",
-        "address": { "@type": "PostalAddress", "addressLocality": "Coimbatore", "addressCountry": "IN" },
-        "alumniOf": ["Kumaraguru College of Technology", "PSG Polytechnic College"],
-        "sameAs": ["https://github.com/Aswin-Kumar7", "https://www.linkedin.com/in/aswinkumar7/"]
+    <!-- the serif is declared here, not in the bundle, so the loader and the hero headline have it from the first paint -->
+    <link rel="preload" href="/fonts/instrument-serif-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <style>
+      @font-face {
+        font-family: 'Instrument Serif';
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+        src: url(/fonts/instrument-serif-latin-ext-400-normal.woff2) format('woff2');
+        unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
       }
-    </script>
+      @font-face {
+        font-family: 'Instrument Serif';
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+        src: url(/fonts/instrument-serif-latin-400-normal.woff2) format('woff2');
+        unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+
+      html { background: #02040b; }
+      /* the prerendered copy is for crawlers; the app renders over it (no layout, paint or shift before that) */
+      #root[data-prerendered] { content-visibility: hidden; }
+
+      /* Loader: a row of small dev icons with a light wave running across them, and the progress
+         right beneath. Everything that moves is a transform or opacity, so it keeps moving on the
+         compositor while the main thread parses the app and compiles shaders. */
+      #boot { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; color: #e6edf8; }
+      #boot .bt-bg { position: absolute; inset: 0; background: #02040b; }
+      #boot .bt-center { position: relative; display: flex; flex-direction: column; align-items: center; gap: 22px; }
+      #boot .bt-icons { display: flex; gap: 18px; color: #9fd6ff; }
+      #boot .bt-icons span { display: block; width: 22px; height: 22px; opacity: 0.3; animation: bt-wave 1.6s ease-in-out infinite; }
+      #boot .bt-icons span:nth-child(2) { animation-delay: 0.14s; }
+      #boot .bt-icons span:nth-child(3) { animation-delay: 0.28s; }
+      #boot .bt-icons span:nth-child(4) { animation-delay: 0.42s; }
+      #boot .bt-icons span:nth-child(5) { animation-delay: 0.56s; }
+      #boot .bt-icons svg { display: block; width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 6px rgba(47, 125, 255, 0.55)); }
+      #boot .bt-meta { display: flex; align-items: center; gap: 12px; font: 500 10.5px / 1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 0.14em; color: rgba(135, 149, 173, 0.95); }
+      #boot .bt-bar { position: relative; width: 132px; height: 2px; border-radius: 2px; overflow: hidden; background: rgba(255, 255, 255, 0.1); }
+      #boot .bt-bar i { position: absolute; inset: 0; background: linear-gradient(90deg, #2f7dff, #9fd6ff); transform: scaleX(0); transform-origin: 0 50%; }
+      #boot .bt-count { min-width: 3ch; text-align: right; color: #e6edf8; font-variant-numeric: tabular-nums; }
+      #boot .bt-slit { position: absolute; left: 0; right: 0; top: 50%; height: 1px; margin-top: -0.5px; transform: scaleX(0); background: linear-gradient(90deg, transparent, rgba(159, 214, 255, 0.85) 28%, #fff 50%, rgba(159, 214, 255, 0.85) 72%, transparent); box-shadow: 0 0 14px 1px rgba(47, 125, 255, 0.8); }
+      @keyframes bt-wave { 0%, 45%, 100% { opacity: 0.3; transform: none; } 18% { opacity: 1; transform: translateY(-3px); } }
+      @media (prefers-reduced-motion: reduce) { #boot * { animation: none !important; } }
+    </style>
+    <noscript><style>#boot { display: none; } #root[data-prerendered] { content-visibility: visible; }</style></noscript>
+
+    <!-- structured data (schema.org Person / ProfilePage) is added at build time by scripts/prerender.mjs -->
   </head>
   <body>
+    <div id="boot" aria-hidden="true">
+      <div class="bt-bg"></div>
+      <div class="bt-center">
+        <div class="bt-icons"><span><svg viewBox="0 0 24 24"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/></svg></span><span><svg viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg></span><span><svg viewBox="0 0 24 24"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></span><span><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg></span><span><svg viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg></span></div>
+        <div class="bt-meta"><span class="bt-bar"><i></i></span><span class="bt-count">000</span></div>
+      </div>
+      <div class="bt-slit"></div>
+    </div>
+    <script>
+      // the counter eases toward the progress the app reports (window.__boot.set); until the
+      // bundle arrives it creeps up on its own. src/lib/boot.ts plays the exit.
+      ;(function () {
+        // a reload always starts at the top: drop any #section before the page can jump to it
+        if (location.hash) history.replaceState(null, '', location.pathname + location.search)
+        // the build loads the stylesheets without blocking the first paint; switch each on once it's in
+        document.querySelectorAll('link[data-deferred-style]').forEach(function (link) {
+          if (link.sheet) link.media = 'all'
+          else link.addEventListener('load', function () { link.media = 'all' })
+        })
+        var el = document.getElementById('boot')
+        if (!el) return
+        if (/[?&]skipintro/.test(location.search)) return el.remove()
+        var count = el.querySelector('.bt-count')
+        var bar = el.querySelector('.bt-bar i')
+        var target = 0
+        var shown = 0
+        var t0 = performance.now()
+        var done
+        var full = new Promise(function (resolve) {
+          done = resolve
+        })
+        function frame(now) {
+          var t = Math.max(target, Math.min(0.15, (now - t0) / 3000))
+          shown += (t - shown) * 0.14
+          if (t >= 1 && shown > 0.996) shown = 1
+          count.textContent = ('00' + Math.round(shown * 100)).slice(-3)
+          bar.style.transform = 'scaleX(' + shown + ')'
+          if (shown >= 1) return done()
+          requestAnimationFrame(frame)
+        }
+        requestAnimationFrame(frame)
+        window.__boot = { el: el, full: full, set: function (v) { target = Math.max(target, v) } }
+        // if the app never starts (a failed download), don't leave the page covered
+        setTimeout(function () {
+          if (!el.isConnected || target > 0) return
+          el.style.transition = 'opacity .6s'
+          el.style.opacity = '0'
+          document.getElementById('root')?.removeAttribute('data-prerendered')
+          setTimeout(function () { el.remove() }, 700)
+        }, 12000)
+      })()
+    </script>
     <div id="root"></div>
     <noscript>
       <p style="color:#fff;font-family:system-ui;padding:2rem">
-        Aswin Kumar B S — Full-Stack, Mobile &amp; AI Developer.
+        Aswin Kumar B S, Full-Stack Developer &amp; DevOps Engineer.
         <a style="color:#9fd6ff" href="/Aswin-Kumar-BS-Resume.pdf">Download resume</a>
       </p>
     </noscript>

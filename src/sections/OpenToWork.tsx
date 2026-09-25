@@ -4,7 +4,7 @@ import { Aurora } from '../components/Aurora'
 import { ButtonLink, ButtonPair } from '../components/Button'
 import { CopyEmail } from '../components/CopyEmail'
 import { SectionHeader } from '../components/SectionHeader'
-import { EASE, MQ, gsap, useGSAP } from '../lib/gsap'
+import { EASE, MQ, gsap, useLazyGSAP } from '../lib/gsap'
 import { sectionStops } from '../lib/stepper'
 import { openToWork, profile } from '../data/resume'
 import type { Opportunity } from '../data/types'
@@ -20,7 +20,7 @@ function OpeningRow({ opening }: { opening: Opportunity }) {
         aria-label={`${opening.title}: ${cta.label}`}
         data-track="offer_cta"
         data-track-label={opening.title}
-        className="group relative flex h-full items-center gap-5 px-6 py-7 transition-colors duration-700 hover:bg-white/[0.035] sm:gap-7 sm:px-9 lg:px-10 short:py-5"
+        className="group relative flex h-full items-center gap-5 px-6 py-7 transition-colors duration-700 hover:bg-white/[0.035] sm:gap-7 sm:px-9 lg:gap-5 lg:px-7 xl:gap-7 xl:px-10 short:py-5"
       >
         {/* a light line draws down the row's edge on hover */}
         <span aria-hidden className="absolute inset-y-0 left-0 w-px origin-top scale-y-0 bg-gradient-to-b from-ice to-accent transition-transform duration-700 ease-[cubic-bezier(0.65,0,0.35,1)] group-hover:scale-y-100" />
@@ -54,21 +54,21 @@ function OpeningRow({ opening }: { opening: Opportunity }) {
 
 export function OpenToWork() {
   const root = useRef<HTMLElement>(null)
-  const mailto = `mailto:${profile.email}?subject=${encodeURIComponent(`Hello ${profile.firstName} — an opportunity`)}`
+  const mailto = `mailto:${profile.email}?subject=${encodeURIComponent(`Hello ${profile.firstName}, about an opportunity`)}`
 
-  useGSAP(
+  useLazyGSAP(
     () => {
       const q = gsap.utils.selector(root)
       const mm = gsap.matchMedia()
       mm.add(MQ.motion, () => {
-        // the panel opens like a window onto the nebula; its contents settle in after it
+        // the panel opens like a window onto the nebula (in real time, on arrival); its contents settle in after it
         gsap
           .timeline({
-            defaults: { ease: 'none' },
-            scrollTrigger: { trigger: q('[data-invite]')[0], start: 'top 95%', end: 'top 45%', scrub: 1.2 },
+            defaults: { ease: EASE.cine, duration: 1.5 },
+            scrollTrigger: { trigger: q('[data-invite]')[0], start: 'top 85%', toggleActions: 'play none none none' },
           })
           .fromTo(q('[data-invite]'), { y: 90, clipPath: 'inset(10% 5% 10% 5% round 18px)' }, { y: 0, clipPath: 'inset(0% 0% 0% 0% round 18px)' }, 0)
-          .fromTo(q('[data-nebula]'), { scale: 1.15, autoAlpha: 0 }, { scale: 1, autoAlpha: 1 }, 0)
+          .fromTo(q('[data-nebula]'), { scale: 1.15, autoAlpha: 0 }, { scale: 1, autoAlpha: 1, duration: 2 }, 0.1)
         gsap.fromTo(
           q('[data-rise]'),
           { y: 28, autoAlpha: 0 },
@@ -78,7 +78,8 @@ export function OpenToWork() {
             duration: 1.6,
             stagger: 0.12,
             ease: EASE.rise,
-            scrollTrigger: { trigger: q('[data-invite]')[0], start: 'top 70%', once: true },
+            delay: 0.5,
+            scrollTrigger: { trigger: q('[data-invite]')[0], start: 'top 85%', once: true },
           },
         )
         gsap.fromTo(
@@ -90,7 +91,8 @@ export function OpenToWork() {
             duration: 1.5,
             stagger: 0.16,
             ease: EASE.rise,
-            scrollTrigger: { trigger: q('[data-invite]')[0], start: 'top 65%', once: true },
+            delay: 0.7,
+            scrollTrigger: { trigger: q('[data-invite]')[0], start: 'top 85%', once: true },
           },
         )
       })
@@ -106,22 +108,20 @@ export function OpenToWork() {
       id="open-to-work"
       ref={root}
       aria-labelledby="work-title"
-      className="relative flex flex-col justify-center border-b border-line px-4 py-24 sm:px-8 md:py-28 lg:min-h-[100svh] lg:py-[clamp(2.25rem,5svh,6rem)]"
+      className="relative flex flex-col justify-center border-b border-line px-4 py-24 sm:px-8 md:py-28 lg:min-h-[100svh] lg:pt-[max(4.5rem,6svh)] lg:pb-[clamp(1.5rem,5svh,6rem)]"
     >
       <SectionHeader
         id="work-title"
         label="Open to work"
-        title={
-          <>
-            Opportunities I’m ready <br />
-            to take on right now
-          </>
-        }
+        // two lines ("Opportunities I’m ready / to take on right now"); one on short screens
+        titleClassName="mx-auto max-w-[8.3em] short:max-w-none"
+        className="tight:[zoom:0.9] tighter:[zoom:0.82]"
+        title="Opportunities I’m ready to take on right now"
       />
 
       <div
         data-invite
-        className="relative mx-auto mt-12 w-full max-w-[1120px] overflow-hidden rounded-[18px] bg-panel ring-1 ring-white/10 md:mt-14 lg:mt-[clamp(1.25rem,3.5svh,3.5rem)]"
+        className="relative mx-auto mt-12 w-full max-w-[1120px] overflow-hidden rounded-[18px] bg-panel ring-1 ring-white/10 md:mt-14 lg:mt-[clamp(1.25rem,3.5svh,3.5rem)] tight:[zoom:0.9] tighter:[zoom:0.82]"
       >
         {/* nebula glowing in from the right, fading out behind the pitch */}
         <div
@@ -142,7 +142,7 @@ export function OpenToWork() {
             <div>
               <p
                 data-rise
-                className="mono-label inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/30 px-3 py-1.5 text-[10px] text-soft backdrop-blur-sm"
+                className="mono-label inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/50 px-3 py-1.5 text-[10px] text-soft"
               >
                 <span className="relative flex size-1.5">
                   <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400/70 motion-reduce:animate-none" />
@@ -152,10 +152,21 @@ export function OpenToWork() {
               </p>
               <p
                 data-rise
-                className="text-lift mt-6 max-w-[24ch] font-serif text-[clamp(1.75rem,1.1rem+1.35vw,2.6rem)] leading-[1.1] tracking-[-0.01em] text-fg"
+                className="text-lift mt-6 max-w-[22ch] font-serif text-[clamp(1.75rem,1.1rem+1.35vw,2.6rem)] leading-[1.1] tracking-[-0.01em] text-fg"
               >
                 {openToWork.pitch}
               </p>
+              <div data-rise className="mt-6">
+                <p className="mono-label text-[10.5px] text-muted">Open to roles as</p>
+                <ul className="mt-2.5 flex flex-wrap gap-x-5 gap-y-1.5">
+                  {openToWork.roles.map((role) => (
+                    <li key={role} className="flex items-center gap-2 text-[14.5px] font-medium text-fg">
+                      <span aria-hidden className="size-1 rounded-full bg-ice" />
+                      {role}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
             <div data-rise>
               <div className="flex flex-wrap items-center gap-2.5">

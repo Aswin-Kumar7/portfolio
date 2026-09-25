@@ -1,20 +1,9 @@
 import { useRef } from 'react'
-import {
-  BrainCircuit,
-  Cloud,
-  CodeXml,
-  GraduationCap,
-  Network,
-  Server,
-  Smartphone,
-  Users,
-  type LucideIcon,
-} from 'lucide-react'
-import { Aurora } from '../components/Aurora'
+import { Cloud, CodeXml, GraduationCap, Network, Users, type LucideIcon } from 'lucide-react'
 import { Notes } from '../components/Notes'
 import { SectionHeader } from '../components/SectionHeader'
-import { MQ, ScrollTrigger, gsap, useGSAP } from '../lib/gsap'
-import { addStops } from '../lib/stepper'
+import { EASE, MQ, gsap, useLazyGSAP } from '../lib/gsap'
+import { sectionStops } from '../lib/stepper'
 import { milestones } from '../data/resume'
 import type { IconKey, Milestone } from '../data/types'
 import { cn } from '../lib/cn'
@@ -25,132 +14,112 @@ const icons: Record<IconKey, LucideIcon> = {
   cloud: Cloud,
   users: Users,
   network: Network,
-  brain: BrainCircuit,
-  smartphone: Smartphone,
-  server: Server,
 }
 
-function IconBubble({ icon }: { icon: IconKey }) {
-  const Icon = icons[icon]
+/** How each kind is drawn: its tag colour, the small marker beside the tag, and the timeline node. */
+const kinds = {
+  work: {
+    label: 'Work',
+    text: 'text-ice',
+    marker: 'rounded-full bg-ice',
+    node: 'rounded-full bg-ice',
+    latest: 'rounded-full bg-ice shadow-[0_0_0_4px_var(--color-ink),0_0_18px_3px_rgb(var(--accent-rgb)/0.75)]',
+    hover: 'group-hover:text-ice',
+  },
+  // internships: a hollow ring in violet
+  internship: {
+    label: 'Internship',
+    text: 'text-[var(--intern)]',
+    marker: 'rounded-full ring-[1.5px] ring-[var(--intern)] ring-inset',
+    node: 'rounded-full border-2 border-[var(--intern)] bg-ink',
+    latest: 'rounded-full border-2 border-[var(--intern)] bg-ink shadow-[0_0_0_4px_var(--color-ink),0_0_18px_3px_rgb(var(--intern-rgb)/0.6)]',
+    hover: 'group-hover:text-[var(--intern)]',
+  },
+  // education: a gold diamond
+  education: {
+    label: 'Education',
+    text: 'text-[var(--edu)]',
+    marker: 'rotate-45 rounded-[1px] bg-[var(--edu)]',
+    node: 'rotate-45 rounded-[2px] bg-[var(--edu)] shadow-[0_0_14px_1px_rgb(var(--edu-rgb)/0.45)]',
+    latest: 'rotate-45 rounded-[2px] bg-[var(--edu)] shadow-[0_0_14px_1px_rgb(var(--edu-rgb)/0.45)]',
+    hover: 'group-hover:text-[var(--edu)]',
+  },
+} satisfies Record<Milestone['kind'], Record<string, string>>
+
+function Kind({ kind, className }: { kind: Milestone['kind']; className?: string }) {
+  const k = kinds[kind]
   return (
-    <span
-      data-icon
-      className="relative z-10 grid size-12 shrink-0 place-items-center rounded-full bg-[var(--bubble-bg)] text-white/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_0_0_1px_rgba(255,255,255,0.09),0_10px_24px_-14px_rgb(var(--accent-rgb)/0.5)] md:size-[58px]"
-    >
-      <Icon size={20} strokeWidth={1.6} />
+    <span className={cn('flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.1em] uppercase', k.text, className)}>
+      <span aria-hidden className={cn('size-[6px]', k.marker)} />
+      {k.label}
     </span>
   )
 }
 
-function Text({ m, align }: { m: Milestone; align: 'left' | 'right' }) {
+/** One line of the ledger: when · node · what, where and a sentence about it. */
+function Entry({ m, latest }: { m: Milestone; latest: boolean }) {
+  const Icon = icons[m.icon]
+  const k = kinds[m.kind]
+  // "Oct 2025 – Feb 2026" is too wide for the date column: a month range breaks after its dash
+  const [from, to] = m.when.length > 12 ? m.when.split(' – ') : [m.when]
   return (
-    <div className={cn('min-w-0', align === 'right' ? 'md:text-right' : 'text-left')}>
-      <p data-meta className="mono-label text-[10px] text-muted">
-        {m.when} · {m.org}
-      </p>
-      <h3 className="text-lift mt-1.5 font-serif text-[1.3rem] leading-[1.15] text-fg md:text-[1.4rem] 3xl:text-[1.6rem]">{m.title}</h3>
-      <p data-body className={cn('mt-1.5 max-w-[40ch] text-[13px] leading-[1.55] text-muted lg:max-w-none 3xl:text-[14px]', align === 'right' && 'md:ml-auto')}>
-        {m.body}
-      </p>
-    </div>
+    <li data-entry className="group relative grid grid-cols-[24px_1fr] gap-x-4 md:grid-cols-[124px_24px_1fr] md:gap-x-6">
+      <div data-rise className="hidden pt-[0.4rem] text-right md:block">
+        <p className="mono-label text-[11px] leading-[1.5] text-muted">
+          {to ? (
+            <>
+              {from} –<br />
+              {to}
+            </>
+          ) : (
+            m.when
+          )}
+        </p>
+        <Kind kind={m.kind} className="mt-1.5 justify-end" />
+      </div>
+      <div className="relative flex justify-center pt-[0.62rem]">
+        <span data-node className={cn('relative z-10 size-[11px] ring-4 ring-ink transition-shadow duration-500', latest ? k.latest : k.node)} />
+      </div>
+      <div data-rise className="min-w-0 pb-[clamp(1.1rem,2.6svh,2rem)] short:pb-3">
+        <div className="mb-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 md:hidden">
+          <p className="mono-label text-[11px] text-muted">{m.when}</p>
+          <Kind kind={m.kind} />
+        </div>
+        <h3 className={cn('font-serif text-[clamp(1.3rem,1.05rem+0.5vw,1.6rem)] leading-[1.15] text-fg transition-colors duration-500', k.hover)}>
+          {m.title}
+        </h3>
+        <p className="mt-1 flex items-center gap-2 text-[13.5px] font-medium text-soft">
+          <Icon size={14} strokeWidth={1.8} className={cn('shrink-0', k.text)} aria-hidden />
+          {m.org}
+        </p>
+        <p className="mt-1.5 max-w-[68ch] text-[14px] leading-[1.6] text-muted short:leading-[1.5]">{m.body}</p>
+      </div>
+    </li>
   )
 }
 
 export function Journey() {
   const root = useRef<HTMLElement>(null)
 
-  useGSAP(
+  useLazyGSAP(
     () => {
       const q = gsap.utils.selector(root)
-      const rows = q('[data-row]')
-      const card = q('[data-glow-card]')[0]!
-      const orb = q('[data-orb]')[0]!
-      const ring = q('[data-ring]')[0]!
-      const wrap = q('[data-wrap]')[0]!
-      const css = getComputedStyle(document.documentElement)
-      const ACTIVE = css.getPropertyValue('--active-text').trim()
-      const MUTED = css.getPropertyValue('--color-muted').trim()
-      const n = rows.length
-      // centre the orb and ring on their x/y (GSAP owns their transforms)
-      gsap.set([orb, ring], { xPercent: -50, yPercent: -50 })
-
-      // Everything that marks "the current milestone" is measured relative to the wrap…
-      const box = (el: Element) => {
-        const r = el.getBoundingClientRect()
-        const w = wrap.getBoundingClientRect()
-        return { x: r.left - w.left + r.width / 2, y: r.top - w.top + r.height / 2, top: r.top - w.top, h: r.height }
-      }
-      const rowBox = (i: number) => box(rows[i]!)
-      const iconBox = (i: number) => {
-        const icon = [...rows[i]!.querySelectorAll('[data-icon]')].find((el) => (el as HTMLElement).offsetParent)
-        return icon ? box(icon) : null
-      }
-      const nodeBox = (i: number) => box(rows[i]!.querySelector('[data-node]')!)
-
-      const place = (i: number) => {
-        const r = rowBox(i)
-        const ic = iconBox(i)
-        const nd = nodeBox(i)
-        gsap.set(card, { y: r.top, height: r.h })
-        gsap.set(ring, { x: nd.x, y: nd.y })
-        if (ic) gsap.set(orb, { x: ic.x, y: ic.y, autoAlpha: 1 })
-        else gsap.set(orb, { autoAlpha: 0 })
-        rows.forEach((row, j) => {
-          gsap.set(row.querySelectorAll('[data-body]'), { color: j === i ? ACTIVE : MUTED })
-          gsap.set(row.querySelectorAll('[data-meta]'), { color: j === i ? 'rgba(255,255,255,0.82)' : MUTED })
-        })
-      }
-
-      /**
-       * …and moved by ONE scrubbed timeline: the aurora card, the glowing icon orb,
-       * the node ring and the text colours all travel together, so nothing can
-       * arrive before anything else.
-       */
-      const build = (scrollTrigger: ScrollTrigger.Vars) => {
-        place(0)
-        const tl = gsap.timeline({ defaults: { ease: 'power2.inOut', duration: 1 }, scrollTrigger })
-        // the resting state is part of the timeline too, so it re-measures on refresh (fonts, resize)
-        tl.set(card, { y: () => rowBox(0).top, height: () => rowBox(0).h }, 0)
-          .set(ring, { x: () => nodeBox(0).x, y: () => nodeBox(0).y }, 0)
-          .set(orb, { x: () => iconBox(0)?.x ?? 0, y: () => iconBox(0)?.y ?? 0 }, 0)
-          .addLabel('m0', 0)
-        for (let i = 1; i < n; i++) {
-          const at = tl.duration()
-          tl.to(card, { y: () => rowBox(i).top, height: () => rowBox(i).h }, at)
-            .to(ring, { x: () => nodeBox(i).x, y: () => nodeBox(i).y }, at)
-            .to(orb, { x: () => iconBox(i)?.x ?? 0, y: () => iconBox(i)?.y ?? 0 }, at)
-            .to(rows[i - 1]!.querySelectorAll('[data-body]'), { color: MUTED }, at)
-            .to(rows[i - 1]!.querySelectorAll('[data-meta]'), { color: MUTED }, at)
-            .to(rows[i]!.querySelectorAll('[data-body]'), { color: ACTIVE }, at)
-            .to(rows[i]!.querySelectorAll('[data-meta]'), { color: 'rgba(255,255,255,0.82)' }, at)
-            .addLabel(`m${i}`, at + 1)
-        }
-        tl.to({}, { duration: 0.35 }) // a short tail so the last milestone rests before the pin releases
-        tl.fromTo(q('[data-spine-fill]'), { scaleY: 0 }, { scaleY: 1, ease: 'none', duration: tl.duration() }, 0)
-        return tl
-      }
-
       const mm = gsap.matchMedia()
-      mm.add(MQ.desktop, () => {
-        // title and timeline pin together as one screen; every milestone is a resting point
-        const tl = build({ trigger: q('[data-pin]')[0], start: 'top top', end: `+=${n * 32}%`, pin: true, scrub: 0.45, invalidateOnRefresh: true })
-        return addStops(() => {
-          const st = tl.scrollTrigger
-          if (!st) return []
-          return rows.map((_, i) => st.start + (st.end - st.start) * ((tl.labels[`m${i}`] ?? 0) / tl.duration()))
+      mm.add(MQ.motion, () => {
+        // on arrival, in real time: the spine draws down, each entry settles in behind it
+        const tl = gsap.timeline({
+          defaults: { ease: EASE.rise },
+          scrollTrigger: { trigger: q('[data-ledger]')[0], start: 'top 70%', toggleActions: 'play none none none' },
+        })
+        tl.fromTo(q('[data-spine]'), { scaleY: 0 }, { scaleY: 1, duration: 1.8, ease: 'power2.inOut' }, 0)
+        q('[data-entry]').forEach((entry, i) => {
+          const at = 0.2 + i * 0.22
+          tl.fromTo(entry.querySelector('[data-node]'), { scale: 0 }, { scale: 1, duration: 0.7, ease: 'back.out(2)' }, at)
+          tl.fromTo(entry.querySelectorAll('[data-rise]'), { y: 22, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 1.2, stagger: 0.06 }, at)
         })
       })
-      mm.add(MQ.compact, () => {
-        build({ trigger: wrap, start: 'top 62%', end: 'bottom 62%', scrub: 1, invalidateOnRefresh: true })
-      })
-      mm.add(MQ.reduce, () => {
-        place(0)
-        gsap.set(q('[data-spine-fill]'), { scaleY: 1 })
-        rows.forEach((row, i) =>
-          ScrollTrigger.create({ trigger: row, start: 'top 60%', end: 'bottom 60%', onToggle: (self) => self.isActive && place(i) }),
-        )
-      })
-
+      // desktop: one screen, one resting point for the section stepper
+      mm.add(MQ.desktop, () => sectionStops(root.current!))
       return () => mm.revert()
     },
     { scope: root },
@@ -164,15 +133,12 @@ export function Journey() {
           { text: 'v2021 → v2027', className: 'right-[6%] top-[16%]', speed: -0.25, accent: true },
         ]}
       />
-      {/* desktop: one pinned screen — the title on the left, the timeline on the right */}
-      <div
-        data-pin
-        className="lg:grid lg:min-h-[100svh] lg:grid-cols-[minmax(0,0.72fr)_minmax(0,1.5fr)] lg:items-center lg:gap-[4vw] lg:px-6 lg:py-[clamp(2.5rem,6svh,5rem)] 3xl:px-12"
-      >
+      {/* desktop: one screen — the title on the left, the ledger on the right */}
+      <div className="lg:grid lg:min-h-[100svh] lg:grid-cols-[minmax(0,0.72fr)_minmax(0,1.5fr)] lg:items-center lg:gap-[4vw] lg:px-6 lg:pt-[max(4.5rem,6svh)] lg:pb-[clamp(1.5rem,5svh,5rem)] 3xl:px-12">
         <SectionHeader
           id="journey-title"
           label="My journey"
-          className="lg:mx-0 lg:text-left"
+          className="lg:mx-0 lg:text-left tight:[zoom:0.9] tighter:[zoom:0.82]"
           title={
             <>
               Where I’ve worked, <br />
@@ -181,65 +147,19 @@ export function Journey() {
           }
         />
 
-        <div className="mx-auto mt-14 w-full max-w-[860px] md:mt-16 lg:mt-0 3xl:max-w-[1040px]">
-          <div data-wrap className="relative">
-            {/* the travelling highlight: aurora card */}
-            <div data-glow-card aria-hidden className="absolute inset-x-0 top-0 overflow-hidden rounded-[12px] ring-1 ring-white/15">
-              <Aurora preset="clouds" seed={4} />
-              {/* shade so white type stays legible on the brightest clouds */}
-              <div className="absolute inset-0 bg-[linear-gradient(90deg,rgb(var(--scrim-rgb)/0.55),rgb(var(--scrim-rgb)/0.25)_45%,rgb(var(--scrim-rgb)/0.55))]" />
-            </div>
-
-            <div aria-hidden className="absolute top-8 bottom-8 left-[33px] w-px bg-white/[0.08] md:left-1/2 short:left-[33px]" />
-            <div
-              data-spine-fill
-              aria-hidden
-              className="absolute top-8 bottom-8 left-[33px] w-px origin-top bg-gradient-to-b from-ice via-accent to-accent/0 md:left-1/2 short:left-[33px]"
-            />
-
-            <ol className="relative">
-              {milestones.map((m, i) => {
-                const flip = i % 2 === 1
-                return (
-                  <li
-                    key={m.title}
-                    data-row
-                    className="grid grid-cols-[44px_1fr] items-center gap-x-3 px-3 py-5 md:grid-cols-[1fr_64px_1fr] md:gap-x-6 md:px-7 lg:py-[clamp(0.45rem,1.3svh,1.5rem)] short:grid-cols-[44px_1fr] short:gap-x-4 short:px-3"
-                  >
-                    <div className="hidden justify-end md:flex short:hidden">{flip ? <Text m={m} align="right" /> : <IconBubble icon={m.icon} />}</div>
-                    <div className="flex justify-center">
-                      <span data-node className="relative z-10 grid size-[22px] place-items-center rounded-full bg-ink shadow-[0_0_0_1px_rgba(255,255,255,0.22)]">
-                        <span className="size-2 rounded-full bg-white" />
-                      </span>
-                    </div>
-                    <div className="hidden md:flex short:hidden">{flip ? <IconBubble icon={m.icon} /> : <Text m={m} align="left" />}</div>
-                    <div className="md:hidden short:block">
-                      <Text m={m} align="left" />
-                    </div>
-                  </li>
-                )
-              })}
-            </ol>
-
-            {/* the travelling highlight: glowing icon orb + node ring, above the rows */}
-            <span
-              data-orb
-              aria-hidden
-              className="pointer-events-none absolute top-0 left-0 z-20 hidden size-12 rounded-full md:block md:size-[58px] short:hidden"
-              style={{
-                background: 'var(--orb-grad)',
-                boxShadow:
-                  'inset 0 1px 0 rgba(255,255,255,0.4), inset 0 -4px 10px rgb(var(--tint-rgb) / 0.3), 0 0 34px 2px rgb(var(--accent-rgb) / 0.65)',
-                mixBlendMode: 'screen',
-              }}
-            />
-            <span
-              data-ring
-              aria-hidden
-              className="pointer-events-none absolute top-0 left-0 z-20 size-[22px] rounded-full"
-              style={{ boxShadow: '0 0 0 1.5px rgb(var(--ice-rgb) / 0.95), 0 0 18px 3px rgb(var(--accent-rgb) / 0.7)' }}
-            />
-          </div>
+        <div data-ledger className="relative mx-auto mt-14 w-full max-w-[880px] md:mt-16 lg:mt-0 3xl:max-w-[1000px] tight:[zoom:0.9] tighter:[zoom:0.82]">
+          {/* the spine runs through the nodes' column */}
+          <span aria-hidden className="absolute top-3 bottom-6 left-[11.5px] w-px bg-white/10 md:left-[159.5px]" />
+          <span
+            data-spine
+            aria-hidden
+            className="absolute top-3 bottom-6 left-[11.5px] w-px origin-top bg-gradient-to-b from-ice via-accent to-accent/10 md:left-[159.5px]"
+          />
+          <ol className="relative">
+            {milestones.map((m, i) => (
+              <Entry key={m.title} m={m} latest={i === 0} />
+            ))}
+          </ol>
         </div>
       </div>
     </section>
