@@ -238,7 +238,7 @@ export function Nav() {
           ))}
         </ul>
         <div data-menu-item>
-          <a href={profile.resume} download className="btn btn-glow mt-2 w-full" data-track="resume_download" data-track-label="menu" onClick={() => setOpen(false)}>
+          <a href={profile.resume} className="btn btn-glow mt-2 w-full" data-track="resume_download" data-track-label="menu" onClick={() => setOpen(false)}>
             <Download size={14} /> Download resume
           </a>
         </div>

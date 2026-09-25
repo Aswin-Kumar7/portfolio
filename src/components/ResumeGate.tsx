@@ -3,11 +3,12 @@ import { EASE, gsap, prefersReducedMotion } from '../lib/gsap'
 import { profile } from '../data/resume'
 
 /*
- * The résumé, behind a quick human check. Every résumé link still points at the PDF, but a
- * click downloads it from here: straight away if this browser already holds a pass, otherwise
- * after Cloudflare Turnstile (usually invisible) confirms a person is asking, in a small panel
- * by the link. The server asks the same of anyone fetching the PDF directly (middleware.js), so
- * bots that copy files for AI training go without.
+ * The résumé, behind a quick human check on every download. Every résumé link still points at
+ * the PDF, but a click opens a small panel by the link where Cloudflare Turnstile (usually
+ * invisible) confirms a person is asking; the passed check buys a ticket for exactly one
+ * download. Nothing is remembered between clicks. The server asks the same of anyone fetching
+ * the PDF directly, a dragged link included (middleware.js), so bots that copy files for AI
+ * training go without.
  */
 
 interface Gate {
@@ -53,9 +54,10 @@ function loadTurnstile() {
 
 type Attempt = { ok: true } | { ok: false; siteKey?: string; limited?: boolean }
 
-/** Fetches the PDF and saves it; otherwise says what stood in the way. */
-async function download(): Promise<Attempt> {
-  const res = await fetch(profile.resume, { credentials: 'same-origin', cache: 'no-store' })
+/** Fetches the PDF (with a ticket, when there is one) and saves it; otherwise says what stood in the way. */
+async function download(ticket?: string): Promise<Attempt> {
+  const url = ticket ? `${profile.resume}?ticket=${encodeURIComponent(ticket)}` : profile.resume
+  const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' })
   if (res.ok && (res.headers.get('content-type') ?? '').includes('pdf')) {
     const url = URL.createObjectURL(await res.blob())
     const a = document.createElement('a')
@@ -135,8 +137,9 @@ export function ResumeGate() {
           size: 'flexible',
           callback: (token: string) => {
             setPhase('saving')
-            fetch('/api/pass', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ token }) })
-              .then((res) => (res.ok ? download() : Promise.reject(new Error('no pass'))))
+            fetch('/api/pass', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ token, for: 'resume' }) })
+              .then((res) => (res.ok ? (res.json() as Promise<{ ticket?: unknown }>) : Promise.reject(new Error('no ticket'))))
+              .then((out) => (typeof out.ticket === 'string' ? download(out.ticket) : Promise.reject(new Error('no ticket'))))
               .then((attempt) => (attempt.ok ? close() : setPhase(attempt.limited ? 'limited' : 'failed')))
               .catch(() => setPhase('failed'))
           },

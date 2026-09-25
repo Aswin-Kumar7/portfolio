@@ -1,5 +1,5 @@
 import { next, waitUntil } from '@vercel/functions'
-import { TURNSTILE, challenge, hasPass, searchEngine, trainingCrawler, traffic } from './server/shield.js'
+import { TURNSTILE, challenge, hasPass, searchEngine, spendTicket, trainingCrawler, traffic } from './server/shield.js'
 import { QUIET, RESUME, downloadAllowed, notice, noteRequest, who } from './server/visits.js'
 
 /*
@@ -7,8 +7,9 @@ import { QUIET, RESUME, downloadAllowed, notice, noteRequest, who } from './serv
  * assets, the API or BotID's challenge), in this order:
  * 1. AI training crawlers are turned away (server/shield.js has the list);
  * 2. the request is counted, so floods show up (one IP hammering, or the whole site swamped);
- * 3. the résumé needs a Cloudflare Turnstile pass, then stays within a few downloads per IP;
- * 4. pages need that pass too, but only while a flood is on;
+ * 3. the résumé needs a fresh Cloudflare Turnstile check for every download (a one-use ticket),
+ *    and stays within a few downloads per IP;
+ * 4. pages need a check too, but only while a flood is on;
  * 5. everything is logged for the visit alerts, bots included, after the response is on its way.
  * Nothing here may stand between a visitor and the site: any error lets the request through.
  */
@@ -24,7 +25,8 @@ const text = (/** @type {string} */ body, /** @type {number} */ status, /** @typ
 /** @param {Request} request */
 export default async function middleware(request) {
   try {
-    const path = new URL(request.url).pathname
+    const url = new URL(request.url)
+    const path = url.pathname
     if (QUIET.has(path)) return next()
     const w = who(request)
 
@@ -43,10 +45,9 @@ export default async function middleware(request) {
         ),
       )
     }
-    const passed = TURNSTILE && hasPass(request, w.ip)
-
     if (path === RESUME) {
-      if (TURNSTILE && !passed) {
+      // every download its own check: a flood pass or an earlier check doesn't count
+      if (TURNSTILE && !(await spendTicket(url.searchParams.get('ticket'), w.ip))) {
         noteRequest(request, 'challenged')
         return challenge('resume')
       }
@@ -56,6 +57,7 @@ export default async function middleware(request) {
       return next()
     }
 
+    const passed = TURNSTILE && hasPass(request, w.ip)
     if (TURNSTILE && !passed && (load.flooding || load.shield)) {
       if (searchEngine(w.ua)) {
         noteRequest(request, 'deferred')

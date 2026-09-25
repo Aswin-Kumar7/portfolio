@@ -1,11 +1,12 @@
-import { TURNSTILE, passCookies, verifyTurnstile } from '../server/shield.js'
+import { TURNSTILE, passCookies, ticketFor, verifyTurnstile } from '../server/shield.js'
 import { count, tag } from '../server/store.js'
 import { notePass, who } from '../server/visits.js'
 
 /*
- * Trades a Cloudflare Turnstile token for a pass: a signed cookie that lets this browser, on
- * this network, download the résumé (and get past flood checks) for 30 minutes. The token comes
- * from the check page (server/shield.js) or the in-page check (src/components/ResumeGate.tsx).
+ * Trades a Cloudflare Turnstile token for what it was solved for: a ticket for one résumé
+ * download (the check has to be passed again for the next), or, during a flood, a pass cookie
+ * for this network's page views. The token comes from the check page (server/shield.js) or the
+ * in-page check (src/components/ResumeGate.tsx).
  */
 
 const SITE = /^https:\/\/(www\.)?aswinkumar\.dev$/
@@ -30,17 +31,20 @@ export async function POST(request) {
 
   const text = await request.text()
   if (text.length > 4096) return empty(413)
-  /** @type {unknown} */
-  let token
+  /** @type {Record<string, unknown>} */
+  let body
   try {
-    token = JSON.parse(text)?.token
+    body = JSON.parse(text)
   } catch {
     return empty(400)
   }
+  if (!body || typeof body !== 'object') return empty(400)
+  const purpose = body.for === 'resume' ? 'resume' : 'page'
 
-  const ok = await verifyTurnstile(token, w.ip)
+  const ok = await verifyTurnstile(body.token, w.ip, purpose)
   notePass(request, ok)
   if (!ok) return empty(403)
+  if (purpose === 'resume') return Response.json({ ticket: ticketFor(w.ip) }, { headers: { 'cache-control': 'no-store' } })
   const response = empty(204)
   for (const cookie of passCookies(w.ip)) response.headers.append('set-cookie', cookie)
   return response

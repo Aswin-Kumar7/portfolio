@@ -31,7 +31,6 @@ function LinkCard({ href, icon, label, value, download }: { href: string; icon: 
     <a
       data-link
       href={href}
-      download={download || undefined}
       {...(external ? { target: '_blank', rel: 'noreferrer' } : {})}
       data-track="contact_link"
       data-track-label={label}

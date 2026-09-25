@@ -24,7 +24,6 @@ function FooterLink({ href, children, external, download }: { href: string; chil
   return (
     <a
       href={href}
-      download={download || undefined}
       {...(external ? { target: '_blank', rel: 'noreferrer' } : {})}
       data-track={external || download ? 'footer_link' : undefined}
       data-track-label={typeof children === 'string' ? children : undefined}

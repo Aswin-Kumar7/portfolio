@@ -16,7 +16,6 @@ function OpeningRow({ opening }: { opening: Opportunity }) {
     <li data-row className="flex-1 border-b border-white/[0.08] last:border-b-0">
       <a
         href={cta.href}
-        download={cta.download || undefined}
         aria-label={`${opening.title}: ${cta.label}`}
         data-track="offer_cta"
         data-track-label={opening.title}
@@ -177,7 +176,7 @@ export function OpenToWork() {
                   </ButtonLink>
                   <CopyEmail email={profile.email} label="open-to-work" />
                 </ButtonPair>
-                <ButtonLink href={profile.resume} download data-track="resume_download" data-track-label="open-to-work">
+                <ButtonLink href={profile.resume} data-track="resume_download" data-track-label="open-to-work">
                   Download resume
                 </ButtonLink>
               </div>
