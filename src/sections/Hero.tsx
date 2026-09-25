@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { Mail } from 'lucide-react'
-import { Aurora } from '../components/Aurora'
 import { Starfield } from '../components/Starfield'
 import { ButtonLink, ButtonPair } from '../components/Button'
 import { CopyEmail } from '../components/CopyEmail'
@@ -77,7 +76,8 @@ function SceneFallback() {
 
 /**
  * The black hole, lazy-loaded. The hero and the footer each render a host; one shared
- * canvas moves to whichever is on screen. `onFail` fires when WebGL2 isn't available.
+ * canvas moves to whichever is on screen. `onFail` fires when WebGL2 isn't available, or the
+ * GPU turns out too slow for it (a software renderer).
  */
 export function HeroScene({
   framing = 'hero',
@@ -106,6 +106,10 @@ export function HeroScene({
             setReady(true)
             onReady?.()
           },
+          onFail: () => {
+            setReady(false)
+            onFail?.()
+          },
         })
       })
       .catch((err) => {
@@ -131,8 +135,8 @@ export function HeroScene({
 
 export function Hero() {
   const root = useRef<HTMLElement>(null)
-  // the black hole paints its own universe. The animated sky only runs if it can't (no WebGL2);
-  // until the black hole is up, the sky's CSS gradient stands in (and the loader covers it)
+  // the black hole paints its own universe. Until it's up, or if it can't run (no WebGL2, a
+  // software renderer, a GPU too slow for it), the sky's CSS gradient stands in
   const [sceneReady, setSceneReady] = useState(false)
   const [sceneFailed, setSceneFailed] = useState(false)
   useEffect(() => {
@@ -213,11 +217,7 @@ export function Hero() {
         <div data-hero-frame className="absolute inset-0 overflow-hidden bg-ink">
           <div data-hero-sky className="absolute inset-0 origin-[50%_45%]">
             <div data-hero-sky-scroll className="absolute inset-0 origin-[50%_40%]">
-              {sceneFailed ? (
-                <Aurora preset="hero" interactive />
-              ) : (
-                !sceneReady && <div className="absolute inset-0" style={{ background: presets.hero.fallback }} />
-              )}
+              {(!sceneReady || sceneFailed) && <div className="absolute inset-0" style={{ background: presets.hero.fallback }} />}
             </div>
           </div>
           <Starfield maxY={0.62} sparkles={11} />
@@ -227,7 +227,7 @@ export function Hero() {
           </div>
           <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[16%] bg-gradient-to-b from-transparent to-ink" />
           {/* the black hole grains its own frames; a blended overlay on top would re-composite every frame */}
-          {!sceneReady && <div aria-hidden className="grain pointer-events-none absolute inset-0" />}
+          {(!sceneReady || sceneFailed) && <div aria-hidden className="grain pointer-events-none absolute inset-0" />}
 
           <div
             data-hero-content

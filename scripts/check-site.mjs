@@ -61,6 +61,9 @@ for (const [, body] of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
 check(!/\son[a-z]+="/i.test(html), 'inline event handler attribute in index.html (blocked by the CSP)')
 for (const [tag] of html.matchAll(/<a\b[^>]*target="_blank"[^>]*>/g)) check(/rel="[^"]*(noreferrer|noopener)/.test(tag), `external link opens without rel="noreferrer": ${tag.slice(0, 80)}`)
 check(!readdirSync(new URL('static/', dist)).some((f) => f.endsWith('.map')), 'source maps must not ship to production')
+// the visit alerts' webhook is a server-side secret (api/visit.js): it must never reach the page
+const shipped = [html, ...readdirSync(new URL('static/', dist)).filter((f) => /\.(js|css)$/.test(f)).map((f) => read(`static/${f}`))]
+check(!shipped.some((s) => /discord(app)?\.com\/api\/webhooks|DISCORD_WEBHOOK/i.test(s)), 'a Discord webhook (or its env var) is in the shipped files')
 check(!readdirSync(new URL('assets/projects/', dist)).some((f) => /\.(png|jpe?g|webp|avif)$/.test(f)), 'project photos must be published scrambled (.bin) via scripts/project-image.py')
 for (const dir of ['assets/', 'assets/projects/']) {
   for (const f of readdirSync(new URL(dir, dist)).filter((n) => /\.(png|jpe?g|webp|avif|bin)$/.test(n))) {

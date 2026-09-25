@@ -66,7 +66,8 @@ function withCsp(html) {
     `img-src 'self' data: blob: https://avatars.githubusercontent.com ${clarity}`,
     "font-src 'self' data:",
     `connect-src 'self' ${clarity}`,
-    'frame-src https://*.clarity.ms',
+    // 'self': Vercel BotID's deeper check frames its own first-party path (vercel.json)
+    "frame-src 'self' https://*.clarity.ms",
     "worker-src 'self' blob:",
     "manifest-src 'self'",
     "object-src 'none'",

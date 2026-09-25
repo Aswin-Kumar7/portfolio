@@ -135,9 +135,11 @@
         }
         requestAnimationFrame(frame)
         window.__boot = { el: el, full: full, set: function (v) { target = Math.max(target, v) } }
-        // if the app never starts (a failed download), don't leave the page covered
+        // whatever happens (a failed download, a machine too slow to draw a frame), don't leave the page covered
         setTimeout(function () {
-          if (!el.isConnected || target > 0) return
+          if (!el.isConnected) return
+          window.dispatchEvent(new Event('boot:timeout'))
+          el.style.pointerEvents = 'none'
           el.style.transition = 'opacity .6s'
           el.style.opacity = '0'
           document.getElementById('root')?.removeAttribute('data-prerendered')

@@ -6,13 +6,12 @@ import { cn } from '../lib/cn'
 interface AuroraProps {
   preset: AuroraPresetName
   seed?: number
-  interactive?: boolean
   className?: string
   /** A canvas that receives a small copy of every frame (for blurred backdrops). */
   mirror?: RefObject<HTMLCanvasElement | null>
 }
 
-export function Aurora({ preset, seed = 0, interactive = false, className, mirror }: AuroraProps) {
+export function Aurora({ preset, seed = 0, className, mirror }: AuroraProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [ready, setReady] = useState(false)
   const config = presets[preset]
@@ -27,7 +26,6 @@ export function Aurora({ preset, seed = 0, interactive = false, className, mirro
       detach = engine.attach(canvas, {
         preset: config,
         seed,
-        interactive,
         mirrors: mirror?.current ? [mirror.current] : [],
         onReady: () => setReady(true),
       })
@@ -36,7 +34,7 @@ export function Aurora({ preset, seed = 0, interactive = false, className, mirro
       cancelled = true
       detach?.()
     }
-  }, [config, seed, interactive, mirror])
+  }, [config, seed, mirror])
 
   return (
     <div

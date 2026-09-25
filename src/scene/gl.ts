@@ -79,9 +79,20 @@ export class GL {
       premultipliedAlpha: true,
       preserveDrawingBuffer: false,
       powerPreference: 'high-performance',
+      // no context if the browser would draw it in software (a blocklisted or missing GPU)
+      failIfMajorPerformanceCaveat: true,
       ...attributes,
     })
-    if (!gl) throw new Error('WebGL2 unavailable')
+    if (!gl) throw new Error('WebGL2 unavailable, or only in software')
+    // …and none on a software renderer the browser doesn't flag (Mesa's llvmpipe on Linux VMs and
+    // driverless machines, SwiftShader, Windows' Basic Render Driver): the ray tracing would take
+    // seconds a frame and stall the page. The callers fall back to their CSS stand-ins.
+    const info = gl.getExtension('WEBGL_debug_renderer_info')
+    const renderer = String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER))
+    if (/swiftshader|llvmpipe|lavapipe|softpipe|software|basic render/i.test(renderer)) {
+      gl.getExtension('WEBGL_lose_context')?.loseContext()
+      throw new Error(`WebGL2 is software-rendered here (${renderer})`)
+    }
     this.gl = gl
     this.parallel = gl.getExtension('KHR_parallel_shader_compile') as ParallelCompile | null
     this.hdr = !!(gl.getExtension('EXT_color_buffer_float') || gl.getExtension('EXT_color_buffer_half_float'))

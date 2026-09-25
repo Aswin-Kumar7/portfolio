@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, ArrowUpRight, Download } from 'lucide-react'
 import { BrandIcon } from '../components/BrandIcon'
+import { PrivacyNote } from '../components/PrivacyNote'
 import { HeroScene } from './Hero'
 import { EASE, MQ, SplitText, gsap, useLazyGSAP } from '../lib/gsap'
 import { nav, profile } from '../data/resume'
@@ -211,12 +212,16 @@ export function Footer() {
 
       {/* ---- bottom bar ---------------------------------------------------- */}
       <div className="relative z-20 mx-[var(--gutter)] flex items-center justify-between gap-4 border-t border-line px-5 py-4 sm:px-8 sm:py-6 lg:px-12">
-        <p className="mono-label text-[10px] text-muted">
-          © {year} {profile.name}
-        </p>
+        <div className="flex items-center gap-4">
+          <p className="mono-label text-[10px] whitespace-nowrap text-muted">
+            © {year} {profile.name}
+          </p>
+          <PrivacyNote />
+        </div>
         <p className="mono-label hidden text-[10px] text-muted md:block">Designed &amp; engineered with React, GSAP &amp; WebGL</p>
-        <a href="#home" className="group mono-label inline-flex items-center gap-3 text-[10px] text-soft transition-colors duration-500 hover:text-white">
-          Back to top
+        <a href="#home" aria-label="Back to top" className="group mono-label inline-flex items-center gap-3 text-[10px] text-soft transition-colors duration-500 hover:text-white">
+          {/* (just the arrow on a phone: the bar also carries the name and the privacy note) */}
+          <span className="hidden sm:inline">Back to top</span>
           <span className="btn btn-dark btn-icon !size-9">
             <ArrowUp size={14} className="transition-transform duration-700 group-hover:-translate-y-0.5" />
           </span>

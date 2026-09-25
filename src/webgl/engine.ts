@@ -15,7 +15,6 @@ import type { AuroraPreset } from './presets'
 interface AttachOptions {
   preset: AuroraPreset
   seed?: number
-  interactive?: boolean
   /** Canvases that receive a downscaled copy (e.g. a blurred backdrop). */
   mirrors?: HTMLCanvasElement[]
   onReady?: () => void
@@ -27,7 +26,6 @@ interface Target {
   preset: AuroraPreset
   colors: Record<keyof AuroraPreset['colors'], [number, number, number]>
   seed: number
-  interactive: boolean
   mirrors: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D }[]
   onReady?: () => void
   cssW: number
@@ -39,7 +37,6 @@ interface Target {
   ready: boolean
   last: number
   mirrored: number
-  mouse: { x: number; y: number }
 }
 
 const hex = (value: string): [number, number, number] => {
@@ -68,7 +65,6 @@ class AuroraEngine {
   private frameTimes: number[] = []
   private lastTick = 0
   private lost = false
-  private pointer = { x: 0, y: 0 }
   private reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
   private coarse = window.matchMedia('(pointer: coarse)').matches
 
@@ -93,7 +89,6 @@ class AuroraEngine {
       this.ensureLoop()
     })
 
-    window.addEventListener('pointermove', this.onPointer, { passive: true })
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) this.stopLoop()
       else this.ensureLoop()
@@ -118,7 +113,6 @@ class AuroraEngine {
       preset: opts.preset,
       colors: Object.fromEntries(Object.entries(c).map(([k, v]) => [k, hex(v)])) as Target['colors'],
       seed: opts.seed ?? 0,
-      interactive: !!opts.interactive,
       mirrors,
       onReady: opts.onReady,
       cssW: 0,
@@ -130,7 +124,6 @@ class AuroraEngine {
       ready: false,
       last: 0,
       mirrored: 0,
-      mouse: { x: 0, y: 0 },
     }
     this.targets.add(target)
     this.byCanvas.set(canvas, target)
@@ -192,11 +185,6 @@ class AuroraEngine {
       if (t.visible) t.dirty = t.dirty || !t.ready
     }
     this.ensureLoop()
-  }
-
-  private onPointer = (e: PointerEvent) => {
-    this.pointer.x = (e.clientX / window.innerWidth) * 2 - 1
-    this.pointer.y = -((e.clientY / window.innerHeight) * 2 - 1)
   }
 
   // -------------------------------------------------------------------- loop
@@ -276,10 +264,6 @@ class AuroraEngine {
       this.canvas.height = this.glH
     }
 
-    if (t.interactive) {
-      t.mouse.x += (this.pointer.x - t.mouse.x) * 0.04
-      t.mouse.y += (this.pointer.y - t.mouse.y) * 0.04
-    }
     this.program.use()
     this.apply(t, time)
     g.bind(null, t.w, t.h)
@@ -305,7 +289,7 @@ class AuroraEngine {
     u.u1f('uSeed', t.seed)
     u.u4f('uCrop', 0, 0, 1, 1)
     u.u1f('uAspect', t.cssW / Math.max(t.cssH, 1))
-    u.u2f('uMouse', t.mouse.x, t.mouse.y)
+    u.u2f('uMouse', 0, 0)
     u.u3f('uZenith', ...c.zenith)
     u.u3f('uZenith2', ...c.zenith2)
     u.u3f('uSky', ...c.sky)

@@ -56,6 +56,8 @@ export function startBoot() {
   void Promise.race([fonts, wait(3000)]).then(() => progress('fonts', 1))
   // a slow GPU or network never holds the page hostage: the hero has a CSS stand-in
   window.setTimeout(() => (Object.keys(values) as Task[]).forEach((k) => progress(k, 1)), 6000)
+  // index.html's last-resort timer took the loader down: open the page behind it
+  window.addEventListener('boot:timeout', () => resolveBooted(), { once: true })
 }
 
 const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms))
@@ -73,7 +75,14 @@ async function finish() {
     // storage blocked: treat as a first visit
   }
   const minimum = (seen ? 300 : 800) - performance.now()
-  await Promise.all([ui.full, wait(Math.max(0, minimum))])
+  // the counter and the exit run on animation frames, which a struggling GPU can all but stop;
+  // plain timers make sure neither can keep the page covered
+  await Promise.all([Promise.race([ui.full, wait(2500)]), wait(Math.max(0, minimum))])
+  window.setTimeout(() => {
+    if (!ui.el.isConnected) return
+    resolveBooted()
+    ui.el.remove()
+  }, 3000)
 
   const q = (s: string) => ui.el.querySelectorAll(s)
   if (prefersReducedMotion()) {

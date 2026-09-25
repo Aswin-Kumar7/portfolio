@@ -1,5 +1,5 @@
 import { gsap } from '../lib/gsap'
-import { progress } from '../lib/boot'
+import { booted, progress } from '../lib/boot'
 import { GL, type Program, type Target } from './gl'
 import type { Framing, SceneControls } from './state'
 
@@ -662,6 +662,8 @@ interface HostOptions {
   controls: SceneControls
   /** The first frame has been drawn into this host. */
   onReady?: () => void
+  /** The scene gave up (the GPU can't draw it fast enough): show the CSS stand-in. */
+  onFail?: () => void
 }
 
 interface Host extends HostOptions {
@@ -746,6 +748,11 @@ class BlackHole {
   private fastWindows = 0
   private stableWindows = 0
   private frameTimes: number[] = []
+  // watchdog: once the page is up, a GPU that can't draw this at a few frames a second even at
+  // the lowest resolution gets the CSS stand-in, not a page that stalls behind it
+  private watchFrom = 0
+  private watchTimes: number[] = []
+  private watchDone = false
 
   constructor() {
     this.canvas.className = 'absolute inset-0 block h-full w-full'
@@ -772,6 +779,8 @@ class BlackHole {
       )
     }
     gsap.ticker.add(this.tick)
+    // measured after the loader: page start-up work would make any GPU look slow
+    void booted.then(() => (this.watchFrom = performance.now() + 800))
   }
 
   /** (Re)creates every GPU resource: on start, and after a lost context comes back. */
@@ -795,7 +804,44 @@ class BlackHole {
     progress('scene', 0.15)
   }
 
+  /** Stop for good and hand every host back to its CSS stand-in. */
+  private giveUp(reason: string) {
+    this.failed = true
+    console.warn(`[scene] black hole off: ${reason}`)
+    gsap.ticker.remove(this.tick)
+    this.canvas.remove()
+    this.g.dispose()
+    progress('scene', 1)
+    this.hosts.forEach((h) => h.onFail?.())
+  }
+
+  /** Frame times after start-up: under ~7fps, even at the lowest resolution, means give up. */
+  private watch(now: number) {
+    if (this.watchDone || !this.watchFrom || now < this.watchFrom || document.hidden || !this.last) return false
+    // (a GPU that takes seconds a frame counts too; the median shrugs off one long gap, like a tab switch)
+    this.watchTimes.push(now - this.last)
+    // ten frames, or just a few when each one takes an age
+    const n = this.watchTimes.length
+    if (n < 10 && (n < 3 || now - this.watchFrom < 4000)) return false
+    const median = [...this.watchTimes].sort((a, b) => a - b)[n >> 1]!
+    this.watchTimes.length = 0
+    this.watchFrom = now
+    if (median <= 150) {
+      this.watchDone = true
+      return false
+    }
+    // a third of the pixels can rescue a GPU a few times too slow, not one taking seconds a frame
+    if (median < 500 && this.quality > this.minQuality) {
+      this.quality = this.ceiling = this.minQuality
+      this.applySize()
+      return false
+    }
+    this.giveUp(`frames take ${Math.round(median)}ms at ${this.quality.toFixed(2)}x resolution`)
+    return true
+  }
+
   attach(el: HTMLElement, opts: HostOptions) {
+    if (this.failed) throw new Error('the black hole is off on this device')
     const host: Host = { ...opts, el, visible: false, shown: false }
     this.hosts.push(host)
     this.io.observe(el)
@@ -949,7 +995,10 @@ class BlackHole {
   private tick = () => {
     if (this.failed || this.lost) return
     const host = this.pickHost()
-    if (!host) return
+    if (!host) {
+      this.last = 0 // no frame timing across the time it sat off-screen
+      return
+    }
     try {
       if (!this.compiled && !this.checkCompiled()) return
     } catch (err) {
@@ -968,6 +1017,7 @@ class BlackHole {
       return
     }
     const now = performance.now()
+    if (this.watch(now)) return
     if (this.warmup > 0) this.warmup--
     else if (this.last && now - this.last < 250) {
       this.frameTimes.push(now - this.last)
@@ -985,7 +1035,7 @@ let instance: BlackHole | undefined
 
 /**
  * Show the black hole in `el` (the hero's ground, the footer's stage). Throws when WebGL2
- * is unavailable, so the caller keeps its CSS stand-in.
+ * is unavailable or software-only, or the scene already gave up, so the caller keeps its CSS stand-in.
  */
 export function attachBlackHole(el: HTMLElement, opts: HostOptions) {
   instance ??= new BlackHole()

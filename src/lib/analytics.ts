@@ -1,5 +1,7 @@
 import Clarity from '@microsoft/clarity'
 import { inject as startVercel, track as vercelTrack } from '@vercel/analytics'
+import { onTrackingChange, trackingOff } from './consent'
+import { noteVisit, startVisits } from './visits'
 
 /*
  * Analytics.
@@ -7,6 +9,11 @@ import { inject as startVercel, track as vercelTrack } from '@vercel/analytics'
  * Vercel Web Analytics (page views, visitors, referrers, countries, devices) starts in
  * production builds on aswinkumar.dev; Vercel serves its script first-party from /_vercel/insights.
  * Every event below is also sent to it as a custom event (recorded on Vercel's Pro plan).
+ *
+ * Visit alerts (src/lib/visits.ts): every visit also lands in a private Discord channel with
+ * the visitor's location, device, browser, new or returning, and time on the page. Production only.
+ *
+ * All three stay off in a browser whose visitor switched them off in the privacy note (src/lib/consent.ts).
  *
  * Microsoft Clarity (heatmaps, session recordings, scroll depth, rage clicks) starts in
  * production builds when VITE_CLARITY_PROJECT_ID is set — so local dev and Vercel preview
@@ -20,12 +27,14 @@ import { inject as startVercel, track as vercelTrack } from '@vercel/analytics'
 type Props = Record<string, string | number | boolean>
 
 const CLARITY_ID = import.meta.env.VITE_CLARITY_PROJECT_ID?.trim()
+/** the real site, not local dev or a preview */
+const LIVE = import.meta.env.PROD && location.hostname.endsWith('aswinkumar.dev')
 let clarity = false
 /** Clarity measures these itself — no need to send them as custom events. */
 const CLARITY_NATIVE = new Set(['scroll_depth', 'engaged_time'])
 
 function startClarity() {
-  if (clarity || !import.meta.env.PROD || !CLARITY_ID) return
+  if (clarity || !import.meta.env.PROD || !CLARITY_ID || trackingOff()) return
   try {
     Clarity.init(CLARITY_ID)
     clarity = true
@@ -34,21 +43,38 @@ function startClarity() {
   }
 }
 
+/** Switched off mid-visit: Clarity drops its cookies and stops recording. */
+function stopClarity() {
+  if (!clarity) return
+  clarity = false
+  try {
+    Clarity.consent(false)
+    ;(window as Window & { clarity?: (...args: unknown[]) => void }).clarity?.('stop')
+  } catch {
+    // analytics must never break the page
+  }
+}
+
 export function track(event: string, props: Props = {}) {
   const payload: Props = { ...props }
   try {
-    if (import.meta.env.PROD && location.hostname.endsWith('aswinkumar.dev')) vercelTrack(event, payload)
+    if (LIVE && !trackingOff()) vercelTrack(event, payload)
     // e.g. "contact_click:hero" — filterable in Clarity's dashboard
     if (clarity && !CLARITY_NATIVE.has(event)) Clarity.event(payload.label ? `${event}:${payload.label}` : event)
   } catch {
     // analytics must never break the page
   }
+  noteVisit(event, payload)
   if (import.meta.env.DEV) console.info('[analytics]', event, payload)
 }
 
 export function initAnalytics() {
   // Vercel's page-view script is ~1 kB and deferred: it starts straight away, so short visits count too
-  if (import.meta.env.PROD && location.hostname.endsWith('aswinkumar.dev')) startVercel({ mode: 'production', framework: 'vite' })
+  if (LIVE && !trackingOff()) startVercel({ mode: 'production', framework: 'vite' })
+  const stopVisits = LIVE ? startVisits() : undefined
+  const offSwitch = onTrackingChange(() => {
+    if (trackingOff()) stopClarity()
+  })
 
   // Clarity loads once the page is idle, so it never competes with the intro or the 3D scenes
   // (Safari has no requestIdleCallback — a timeout stands in)
@@ -99,5 +125,7 @@ export function initAnalytics() {
     window.removeEventListener('scroll', onScroll)
     document.removeEventListener('visibilitychange', onHide)
     cancelAnimationFrame(raf)
+    stopVisits?.()
+    offSwitch()
   }
 }
