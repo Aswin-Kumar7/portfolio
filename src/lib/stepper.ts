@@ -7,6 +7,7 @@ import { glideTo, isGliding, isScrollLocked, setAnchorResolver, setWheelFilter, 
  * Two kinds of places on the page:
  *  - stops: a section's screen. One flick glides (slowly, so its reveal is seen) to the
  *    next stop; the rest of that flick's momentum is swallowed, so a flick is one step.
+ *    Trackpads are told apart from wheels and tuned for their own input (see below).
  *  - free ranges: scroll-driven stories (the hero's camera dive, About's words lighting
  *    up, the projects gallery). Inside one the wheel scrolls normally and drives the
  *    animation; the page snaps only at its ends, and leaving takes a fresh flick.
@@ -62,29 +63,83 @@ function stops() {
 }
 
 function nextStop(dir: 1 | -1) {
-  const y = window.scrollY
+  // from where the page is heading, not where it is: a range still easing to its end isn't a stop away
+  const y = wheelTarget()
   const list = stops()
   return dir > 0 ? list.find((s) => s > y + 6) : list.findLast((s) => s < y - 6)
 }
 
 let enabled = false
 let lastInput = 0
-/** After a glide the gesture's momentum keeps arriving; wait for a pause before the next step. */
-let settling = false
 /** This gesture ran a free range to its end: it may not also carry the page out of it. */
 let edgeHold = false
 /** A short hush after every landing (by the clock): input queued behind a slow frame can't double-step. */
 let quietUntil = 0
+/** A trackpad swipe made during a glide: taken as soon as the glide lands. */
+let queued: 1 | -1 | 0 = 0
 
-function go(target: number | undefined) {
+/*
+ * Mouse wheels and trackpads send very different input. A wheel sends a few big notches
+ * (~100px each, or lines); a trackpad sends a dense stream of small deltas, then keeps
+ * streaming momentum for a second or more after the fingers lift. Trackpad gestures get:
+ * a little intent before they step (a resting finger doesn't jump a section), more travel
+ * and less smoothing in the free ranges (the fingers drive them directly), quicker glides,
+ * and a new swipe told apart from momentum by its rise, so it can queue the next step.
+ */
+/** px of swipe before a trackpad gesture counts as a step. */
+const PAD_INTENT = 36
+/** Free ranges move this much further per trackpad pixel than per wheel pixel. */
+const PAD_GAIN = 2.4
+/** Smoothing for trackpad scrolling in free ranges (a wheel's is 0.075): the input is already smooth. */
+const PAD_LERP = 0.18
+
+interface Gesture {
+  pad: boolean
+  dir: 1 | -1 | 0
+  /** swipe distance so far (raw px), for the intent threshold */
+  travel: number
+  /** the largest delta so far, and the last few: momentum only ever fades from its peak */
+  peak: number
+  recent: number[]
+  /** this gesture already moved the page a step (or queued one): the rest of it is momentum */
+  consumed: boolean
+}
+
+const fresh = (): Gesture => ({ pad: false, dir: 0, travel: 0, peak: 0, recent: [], consumed: false })
+let gesture = fresh()
+
+/** Fine-grained pixel deltas are a trackpad (or a free-spinning hi-res wheel, which behaves like one). */
+function isPad(e: WheelEvent) {
+  if (e.deltaMode !== 0) return false
+  const legacy = (e as WheelEvent & { wheelDeltaY?: number }).wheelDeltaY
+  if (legacy && legacy === -3 * e.deltaY) return true // Chrome and Safari on macOS trackpads
+  return Math.abs(e.deltaY) < 50
+}
+
+/** Momentum fades; a fresh swipe rises again from a faded stream, or turns around. */
+function isNewSwipe(mag: number, dir: 1 | -1) {
+  if (!gesture.pad || !gesture.dir) return false
+  if (dir !== gesture.dir) return true
+  const { recent, peak } = gesture
+  if (recent.length < 3) return false
+  const avg = recent.reduce((a, b) => a + b, 0) / recent.length
+  return avg < peak * 0.5 && mag > avg * 2 && mag > 6
+}
+
+function go(target: number | undefined, pad = false) {
   if (target === undefined) return
-  // unhurried: a screen takes ~1.5s, so each section's arrival is actually seen
+  // unhurried for a wheel: a screen takes ~1.5s, so each section's arrival is actually seen;
+  // quicker for a trackpad, whose swipes come faster and whose momentum is already in motion
   const distance = Math.abs(target - window.scrollY)
-  const duration = Math.min(2.2, Math.max(1.3, 0.95 + distance / 1600))
-  settling = false
+  const duration = pad ? Math.min(1.35, Math.max(0.9, 0.7 + distance / 2000)) : Math.min(2.2, Math.max(1.3, 0.95 + distance / 1600))
+  queued = 0
   glideTo(target, duration, () => {
-    settling = true
-    quietUntil = performance.now() + 350
+    quietUntil = performance.now() + (pad ? 120 : 350)
+    if (queued) {
+      const dir = queued
+      queued = 0
+      go(nextStop(dir), true)
+    }
   })
 }
 
@@ -93,19 +148,38 @@ function onWheel(deltaX: number, deltaY: number, event: WheelEvent | TouchEvent)
   if (Math.abs(deltaX) > Math.abs(deltaY)) return true
   if ((event.target as Element | null)?.closest?.('[data-lenis-prevent], [data-lenis-prevent-wheel]')) return true
   if (event.cancelable) event.preventDefault()
+  const e = event as WheelEvent
   // when the input happened, not when we got to it: a slow frame (a shader compiling the first
   // time a section appears) must not split one flick's momentum into two "gestures"
-  const now = event.timeStamp || performance.now()
+  const now = e.timeStamp || performance.now()
   const gap = now - lastInput
   lastInput = now
-  if (gap >= GESTURE_GAP) edgeHold = false
-  if (isGliding() || performance.now() < quietUntil) return false
-  if (settling) {
-    if (gap < GESTURE_GAP) return false
-    settling = false
-  }
-  if (Math.abs(deltaY) < 1) return false
+  const mag = Math.abs(e.deltaY)
+  if (mag < 0.5) return false
   const dir = deltaY > 0 ? 1 : -1
+
+  // one gesture = one intent: it ends at a pause, or (trackpads) when a new swipe starts
+  if (gap >= GESTURE_GAP || isNewSwipe(mag, dir)) {
+    gesture = fresh()
+    edgeHold = false
+  }
+  gesture.pad ||= isPad(e)
+  gesture.dir = dir
+  gesture.peak = Math.max(gesture.peak, mag)
+  gesture.recent = [...gesture.recent.slice(-2), mag]
+  if (gesture.pad) gesture.travel += mag
+
+  if (isGliding() || performance.now() < quietUntil) {
+    // a fresh trackpad swipe mid-glide isn't lost: it's the next step, taken on landing
+    if (gesture.pad && !gesture.consumed && gesture.travel >= PAD_INTENT) {
+      queued = dir
+      gesture.consumed = true
+    }
+    // a wheel gesture that overlaps a glide is spent, as before: the next step takes a fresh flick
+    if (!gesture.pad) gesture.consumed = true
+    return false
+  }
+  if (gesture.consumed) return false
 
   // inside a scroll-driven story: scroll it like a normal page, clamped to its ends
   const at = wheelTarget()
@@ -113,15 +187,18 @@ function onWheel(deltaX: number, deltaY: number, event: WheelEvent | TouchEvent)
   if (range) {
     const [a, b] = range
     if (dir > 0 ? at < b - 1 : at > a + 1) {
-      const target = at + deltaY
+      const target = at + (gesture.pad ? deltaY * PAD_GAIN : deltaY)
       const clamped = Math.min(b, Math.max(a, target))
       if (clamped !== target) edgeHold = true
-      wheelTo(clamped)
+      wheelTo(clamped, gesture.pad ? PAD_LERP : undefined)
       return false
     }
     if (edgeHold) return false
   }
-  go(nextStop(dir))
+  // a trackpad needs a little intent first; a wheel notch is intent enough
+  if (gesture.pad && gesture.travel < PAD_INTENT) return false
+  gesture.consumed = true
+  go(nextStop(dir), gesture.pad)
   return false
 }
 
@@ -169,8 +246,9 @@ export function initStepper() {
   const mq = window.matchMedia(STEPPER_MQ)
   const sync = () => {
     enabled = mq.matches
-    settling = false
+    gesture = fresh()
     edgeHold = false
+    queued = 0
   }
   sync()
   mq.addEventListener('change', sync)

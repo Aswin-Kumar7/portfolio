@@ -23,11 +23,14 @@ export const isScrollLocked = () => !!lenis?.isStopped
 /** Where the page is heading (Lenis's target), falling back to where it is. */
 export const wheelTarget = () => lenis?.targetScroll ?? window.scrollY
 
-/** Scroll exactly as a wheel tick would — same smoothing — but to a position we chose. */
-export function wheelTo(y: number) {
+/**
+ * Scroll exactly as a wheel tick would — same smoothing — but to a position we chose.
+ * Trackpad input is already smooth, so it passes a lighter `lerp` (less lag behind the fingers).
+ */
+export function wheelTo(y: number, lerp?: number) {
   if (!lenis) return window.scrollTo(0, y)
-  const { lerp, duration, easing } = lenis.options
-  lenis.scrollTo(y, { programmatic: false, lerp, duration, easing })
+  const { duration, easing } = lenis.options
+  lenis.scrollTo(y, { programmatic: false, lerp: lerp ?? lenis.options.lerp, duration, easing })
 }
 
 const expoInOut = (t: number) =>

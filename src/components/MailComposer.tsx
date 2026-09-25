@@ -12,7 +12,8 @@ import { profile } from '../data/resume'
  * and a greeting already filled in.
  *
  * On a computer, Gmail and Outlook open their compose page in a new tab. On a phone or tablet
- * they open the Gmail or Outlook app itself; if it isn't installed, their web compose page.
+ * they open the Gmail or Outlook app only: no web fallback, which would swap the site's tab for
+ * the mail site while iOS is still asking "Open in Gmail?" (and the back button wouldn't undo it).
  */
 
 interface Draft {
@@ -43,19 +44,16 @@ const enc = encodeURIComponent // %20 for spaces: Outlook turns "+" into "++" fo
 const BODY = `Hi ${profile.firstName},\n\n`
 const query = (d: Draft) => `subject=${enc(d.subject)}&body=${enc(BODY)}`
 
-/**
- * Android: an intent for the app's compose screen (a mailto: SENDTO aimed at its package); Chrome
- * opens `fallback` instead when the app isn't installed.
- */
-const androidApp = (d: Draft, pkg: string, fallback: string) =>
-  `intent:${d.to}?${query(d)}#Intent;scheme=mailto;action=android.intent.action.SENDTO;package=${pkg};S.browser_fallback_url=${enc(fallback)};end`
+/** Android: an intent for the app's compose screen (a mailto: SENDTO aimed at its package). */
+const androidApp = (d: Draft, pkg: string) =>
+  `intent:${d.to}?${query(d)}#Intent;scheme=mailto;action=android.intent.action.SENDTO;package=${pkg};end`
 
 interface Provider {
   id: 'gmail' | 'outlook' | 'app'
   label: string
   hint: Record<Device, string>
   icon: ReactNode
-  /** The web address: what the link points at, and where a phone without the app ends up. */
+  /** The web address: what the link points at, and what a computer opens. */
   web: (d: Draft) => string
   /** The app on a phone or tablet. */
   app?: (d: Draft, on: Exclude<Device, 'desktop'>) => string
@@ -69,7 +67,7 @@ const providers: Provider[] = [
     icon: <BrandIcon slug="gmail" className="size-[18px] text-[#ea4335]" />,
     web: (d) => `https://mail.google.com/mail/?view=cm&fs=1&to=${enc(d.to)}&su=${enc(d.subject)}&body=${enc(BODY)}`,
     app: (d, on) =>
-      on === 'ios' ? `googlegmail://co?to=${enc(d.to)}&${query(d)}` : androidApp(d, 'com.google.android.gm', providers[0]!.web(d)),
+      on === 'ios' ? `googlegmail://co?to=${enc(d.to)}&${query(d)}` : androidApp(d, 'com.google.android.gm'),
   },
   {
     id: 'outlook',
@@ -79,7 +77,7 @@ const providers: Provider[] = [
     icon: <span className="grid size-[18px] place-items-center rounded-[4px] bg-[#0078d4] text-[11px] leading-none font-bold text-white">O</span>,
     web: (d) => `https://outlook.office.com/mail/deeplink/compose?to=${enc(d.to)}&${query(d)}`,
     app: (d, on) =>
-      on === 'ios' ? `ms-outlook://compose?to=${enc(d.to)}&${query(d)}` : androidApp(d, 'com.microsoft.office.outlook', providers[1]!.web(d)),
+      on === 'ios' ? `ms-outlook://compose?to=${enc(d.to)}&${query(d)}` : androidApp(d, 'com.microsoft.office.outlook'),
   },
   {
     id: 'app',
@@ -89,21 +87,6 @@ const providers: Provider[] = [
     web: (d) => `mailto:${d.to}?${query(d)}`,
   },
 ]
-
-/**
- * Opens the app on a phone. iOS can't tell a page whether an app is installed, so if the page is
- * still showing a moment later (no app took over), it goes to the web compose page instead.
- */
-function openApp(provider: Provider, d: Draft, on: Exclude<Device, 'desktop'>) {
-  const url = provider.app!(d, on)
-  if (on === 'ios') {
-    const fallback = window.setTimeout(() => {
-      if (!document.hidden) window.location.href = provider.web(d)
-    }, 1500)
-    document.addEventListener('visibilitychange', () => window.clearTimeout(fallback), { once: true })
-  }
-  window.location.href = url
-}
 
 function Item({ provider, draft, on, onPick }: { provider: Provider; draft: Draft; on: Device; onPick: () => void }) {
   const external = provider.id !== 'app'
@@ -117,7 +100,7 @@ function Item({ provider, draft, on, onPick }: { provider: Provider; draft: Draf
         // phones and tablets: the app, not a browser tab
         if (on !== 'desktop' && provider.app) {
           e.preventDefault()
-          openApp(provider, draft, on)
+          window.location.href = provider.app(draft, on)
         }
         onPick()
       }}
