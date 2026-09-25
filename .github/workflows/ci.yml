@@ -1,7 +1,8 @@
 name: CI
 
-# Every push and pull request runs the checks. Production deploys only from main and only after
-# every check has passed: vercel.json switches off Vercel's own automatic deploys for main.
+# Every push and pull request runs the checks. Production deploys only from main (a push, or
+# "Run workflow") and only after every check has passed: vercel.json switches off Vercel's own
+# automatic deploys for main.
 on:
   push:
     branches: [main]
@@ -57,7 +58,8 @@ jobs:
   deploy:
     name: Deploy to Vercel (production)
     needs: checks
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # a push to main, or "Run workflow" on main (pull requests never deploy)
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
