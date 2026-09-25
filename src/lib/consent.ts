@@ -1,20 +1,35 @@
 /*
- * The visitor's analytics choice. The privacy note's switch (in the footer) keeps Vercel
- * Analytics, Microsoft Clarity and the visit alerts out of this browser from then on. Opening
- * the site with ?notrack does the same (it's how I leave my own devices out); ?track undoes it.
- * A notrack cookie carries the choice to the server, whose request log skips this browser too.
+ * Leaving a browser out of the analytics: opening the site with ?notrack keeps Vercel Analytics,
+ * Microsoft Clarity and the visit alerts out of it from then on (it's how I leave my own devices
+ * out); ?track undoes it. A va_off cookie carries the choice to the server, whose request log
+ * skips this browser too. Visitors ask for their data to be deleted instead (the privacy note).
+ *
+ * The flag used to be called "notrack", when visitors had a switch for it; that switch is gone,
+ * and so is every choice made with it: old flags are cleared, and those browsers count again.
  */
 
-const KEY = 'notrack'
+const KEY = 'va-off'
+const COOKIE = 'va_off'
 
 /** The server's copy of the choice: the cookie holds this one flag and nothing else. */
 function cookie(off: boolean) {
-  document.cookie = off ? `${KEY}=1; Max-Age=31536000; Path=/; SameSite=Lax; Secure` : `${KEY}=; Max-Age=0; Path=/; SameSite=Lax; Secure`
+  document.cookie = off ? `${COOKIE}=1; Max-Age=31536000; Path=/; SameSite=Lax; Secure` : `${COOKIE}=; Max-Age=0; Path=/; SameSite=Lax; Secure`
+}
+
+/** Clears the retired flag, wherever it was kept. */
+function forgetLegacy() {
+  try {
+    localStorage.removeItem('notrack')
+  } catch {
+    // storage blocked
+  }
+  if (/(?:^|;\s*)notrack=/.test(document.cookie)) document.cookie = 'notrack=; Max-Age=0; Path=/; SameSite=Lax; Secure'
 }
 
 function initial() {
   // (the prerender runs the app without a browser: nothing to read there)
   if (typeof window === 'undefined') return false
+  forgetLegacy()
   const q = new URLSearchParams(location.search)
   let choice = q.has('notrack')
   try {
@@ -30,26 +45,5 @@ function initial() {
 }
 
 let off: boolean | undefined
-const listeners = new Set<() => void>()
 
 export const trackingOff = () => (off ??= initial())
-
-export function setTrackingOff(value: boolean) {
-  off = value
-  cookie(value)
-  try {
-    if (value) localStorage.setItem(KEY, '1')
-    else localStorage.removeItem(KEY)
-  } catch {
-    // storage blocked: still off for this page
-  }
-  listeners.forEach((l) => l())
-}
-
-/** For useSyncExternalStore, and for analytics to stop what's already running. */
-export function onTrackingChange(listener: () => void) {
-  listeners.add(listener)
-  return () => {
-    listeners.delete(listener)
-  }
-}

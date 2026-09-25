@@ -21,7 +21,9 @@ import { claim, count, hmac, put, read, run, tag } from './store.js'
  * - budgets per IP and for everyone together (past the ceiling, one summary instead of a flood),
  *   and a full stop whenever Discord pushes back, so the webhook is never hammered into a ban
  * - an IP is kept in its visit's record for two hours at most; everything else is hashed
- * - a browser that switched analytics off (the privacy note sets a notrack cookie) isn't logged
+ * - a browser opened with ?notrack (my own devices: src/lib/consent.ts sets a va_off cookie) isn't logged
+ * - each browser keeps one visitor id (the va_id cookie, set here for two years): the privacy
+ *   note shows it and every alert is signed with it, so a deletion request can name its visits
  */
 
 // ------------------------------------------------------------------ settings
@@ -95,7 +97,9 @@ export function who(request) {
     /** Web Bot Auth: agents such as ChatGPT's sign their requests and name themselves here */
     signature: (h.get('signature-agent') ?? '').match(/https?:\/\/([a-z\d.-]{3,60})/i)?.[1]?.toLowerCase() ?? '',
     referer: clean(h.get('referer') ?? '', 200),
-    optedOut: /(?:^|;\s*)notrack=1(?:;|$)/.test(h.get('cookie') ?? ''),
+    optedOut: /(?:^|;\s*)va_off=1(?:;|$)/.test(h.get('cookie') ?? ''),
+    /** this browser's visitor id, if it has one (va_id, set by api/visit.js) */
+    visitorId: (h.get('cookie') ?? '').match(/(?:^|;\s*)va_id=([\w-]{4,40})(?:;|$)/)?.[1] ?? '',
   }
 }
 /** @typedef {ReturnType<typeof who>} Who */
@@ -148,6 +152,7 @@ async function openVisit(w) {
     browserHeaders: w.browserHeaders,
     signature: w.signature,
     referer: w.referer,
+    vid: w.visitorId,
     /** visits from this IP and browser in the last 30 days, this one included */
     seen: await count(`va:seen:${w.key}`, 30 * 86_400),
     quiet: tooMany ? 'ip' : '',
@@ -228,9 +233,11 @@ export function noteRequest(request, as) {
       edit: (v) => {
         const referer = !v.referer && !!w.referer
         const headers = !v.browserHeaders && w.browserHeaders
+        const id = !v.vid && !!w.visitorId
         if (referer) v.referer = w.referer
         if (headers) v.browserHeaders = true
-        return referer || headers
+        if (id) v.vid = w.visitorId
+        return referer || headers || id
       },
     }).catch((err) => console.warn(`[visit] ${String(err).slice(0, 120)}`)),
   )
@@ -586,7 +593,8 @@ function compose(v, what) {
       {
         color: person && visits > 1 ? 0x5865f2 : COLORS[what.kind],
         fields,
-        footer: { text: `visitor ${js?.visitor?.id || String(v.key).slice(0, 8)}` },
+        // the id the privacy note shows that browser, so a deletion request can be matched here
+        footer: { text: `visitor ${js?.visitor?.id || v.vid || String(v.key).slice(0, 8)}` },
         timestamp: new Date(v.first).toISOString(),
       },
     ],

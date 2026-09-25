@@ -1,7 +1,7 @@
 import Clarity from '@microsoft/clarity'
 import { inject as startVercel, track as vercelTrack } from '@vercel/analytics'
-import { onTrackingChange, trackingOff } from './consent'
-import { noteVisit, startVisits } from './visits'
+import { trackingOff } from './consent'
+import { noteVisit, startVisits, visitorId } from './visits'
 
 /*
  * Analytics.
@@ -13,7 +13,7 @@ import { noteVisit, startVisits } from './visits'
  * Visit alerts (src/lib/visits.ts): every visit also lands in a private Discord channel with
  * the visitor's location, device, browser, new or returning, and time on the page. Production only.
  *
- * All three stay off in a browser whose visitor switched them off in the privacy note (src/lib/consent.ts).
+ * All three stay off in a browser opened once with ?notrack, as my own devices are (src/lib/consent.ts).
  *
  * Microsoft Clarity (heatmaps, session recordings, scroll depth, rage clicks) starts in
  * production builds when VITE_CLARITY_PROJECT_ID is set — so local dev and Vercel preview
@@ -38,18 +38,9 @@ function startClarity() {
   try {
     Clarity.init(CLARITY_ID)
     clarity = true
-  } catch {
-    // analytics must never break the page
-  }
-}
-
-/** Switched off mid-visit: Clarity drops its cookies and stops recording. */
-function stopClarity() {
-  if (!clarity) return
-  clarity = false
-  try {
-    Clarity.consent(false)
-    ;(window as Window & { clarity?: (...args: unknown[]) => void }).clarity?.('stop')
+    // the visitor id the privacy note shows: a deletion request can find this browser's recordings
+    const id = visitorId()
+    if (id) Clarity.setTag('visitor', id)
   } catch {
     // analytics must never break the page
   }
@@ -72,9 +63,6 @@ export function initAnalytics() {
   // Vercel's page-view script is ~1 kB and deferred: it starts straight away, so short visits count too
   if (LIVE && !trackingOff()) startVercel({ mode: 'production', framework: 'vite' })
   const stopVisits = LIVE ? startVisits() : undefined
-  const offSwitch = onTrackingChange(() => {
-    if (trackingOff()) stopClarity()
-  })
 
   // Clarity loads once the page is idle, so it never competes with the intro or the 3D scenes
   // (Safari has no requestIdleCallback — a timeout stands in)
@@ -126,6 +114,5 @@ export function initAnalytics() {
     document.removeEventListener('visibilitychange', onHide)
     cancelAnimationFrame(raf)
     stopVisits?.()
-    offSwitch()
   }
 }

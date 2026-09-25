@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { checkBotId } from 'botid/server'
 import { READY, clientData, notice, pageStarted, pageUpdated, readToken, who } from '../server/visits.js'
 
@@ -11,6 +12,8 @@ import { READY, clientData, notice, pageStarted, pageUpdated, readToken, who } f
  */
 
 const SITE = /^https:\/\/(www\.)?aswinkumar\.dev$/
+/** how long a browser keeps its visitor id (seconds) */
+const ID_LIFETIME = 2 * 365 * 24 * 60 * 60
 
 /** @param {number} status */
 const empty = (status) => new Response(null, { status, headers: { 'cache-control': 'no-store' } })
@@ -38,8 +41,21 @@ export async function POST(request) {
 
   const w = who(request)
   if (body.type === 'start') {
-    const visit = await pageStarted(w, clientData(body), await verdict(request))
-    return Response.json({ token: visit }, { headers: { 'cache-control': 'no-store' } })
+    const data = clientData(body)
+    // one id per browser: the cookie's if it has one (it outlives cleared storage and Safari's
+    // 7-day limit on script storage), else the one the page made, else a new one
+    const id = w.visitorId || data.visitor.id || randomBytes(4).toString('hex')
+    data.visitor.id = id
+    const visit = await pageStarted(w, data, await verdict(request))
+    return Response.json(
+      { token: visit, id },
+      {
+        headers: {
+          'cache-control': 'no-store',
+          'set-cookie': `va_id=${id}; Max-Age=${ID_LIFETIME}; Path=/; HttpOnly; Secure; SameSite=Lax`,
+        },
+      },
+    )
   }
   if (body.type === 'update') {
     const key = readToken(body.token)

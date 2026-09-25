@@ -8,7 +8,8 @@ import { trackingOff } from './consent'
  *
  * A visit lasts while this browser keeps showing up within half an hour: reloads, other tabs and
  * coming straight back all stay on the same alert. New or returning comes from a random id this
- * browser keeps. The privacy note's switch, or ?notrack, turns all of it off (src/lib/consent.ts).
+ * browser keeps; the privacy note shows it, so a visitor can ask for their visits to be deleted.
+ * ?notrack turns all of it off (src/lib/consent.ts).
  */
 
 const ENDPOINT = '/api/visit'
@@ -135,6 +136,22 @@ function watchInput() {
   return stop
 }
 
+/** Makes the server's id this browser's, here and in the visit already under way. */
+function adoptId(id: string) {
+  const prev = read<Visitor>('visitor')
+  if (prev && prev.id !== id) write('visitor', { ...prev, id })
+  change((v) => {
+    const visitor = v.data.visitor as Record<string, unknown> | undefined
+    if (visitor) visitor.id = id
+  })
+}
+
+/** This browser's visitor id, as the alerts show it ("visitor 1a2b3c4d"), or '' if it has none. */
+export function visitorId() {
+  const id = read<Visitor>('visitor')?.id
+  return typeof id === 'string' && /^[\w-]{4,40}$/.test(id) ? id : ''
+}
+
 /** Feeds the visit's scroll depth and clicks from the site's analytics events. */
 export function noteVisit(event: string, props: Record<string, string | number | boolean>) {
   if (!visit || trackingOff() || event === 'engaged_time') return
@@ -210,10 +227,12 @@ async function open() {
       new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 15_000)),
     ])
     if (!res?.ok) return
-    const out = (await res.json()) as { token?: unknown }
+    const out = (await res.json()) as { token?: unknown; id?: unknown }
     if (typeof out.token !== 'string') return
     const token = out.token
     change((v) => (v.token = token))
+    // the server keeps this browser's id (a cookie that outlives cleared storage): adopt it
+    if (typeof out.id === 'string' && /^[\w-]{4,40}$/.test(out.id)) adoptId(out.id)
     // anything that happened before the token arrived (input, a hidden tab) goes up now
     if (visit.input || document.hidden) update(true)
   } catch {

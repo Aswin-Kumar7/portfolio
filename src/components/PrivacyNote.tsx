@@ -1,13 +1,16 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Check, Copy } from 'lucide-react'
 import { EASE, gsap, prefersReducedMotion } from '../lib/gsap'
-import { onTrackingChange, setTrackingOff, trackingOff } from '../lib/consent'
+import { trackingOff } from '../lib/consent'
+import { visitorId } from '../lib/visits'
 import { profile } from '../data/resume'
 
 /*
- * The footer's privacy note: what the analytics collect and why, who handles it, a switch that
- * turns them off in this browser, and how to have your data deleted. It opens above its button,
- * the way the email menu does.
+ * The footer's privacy note: what the analytics collect and why, who handles it, and how to have
+ * your data deleted. It shows this browser's visitor id (the one each Discord alert is signed
+ * with), so a deletion request can name exactly which visits are theirs. It opens above its
+ * button, the way the email menu does.
  */
 
 const collected = [
@@ -20,7 +23,7 @@ const GAP = 12
 
 export function PrivacyNote() {
   const [open, setOpen] = useState(false)
-  const off = useSyncExternalStore(onTrackingChange, trackingOff, () => false)
+  const [copied, setCopied] = useState(false)
   const button = useRef<HTMLButtonElement>(null)
   const panel = useRef<HTMLDivElement>(null)
   const id = useId()
@@ -102,7 +105,11 @@ export function PrivacyNote() {
         type="button"
         aria-expanded={open}
         aria-controls={open ? id : undefined}
-        onClick={() => (open ? close() : setOpen(true))}
+        onClick={() => {
+          if (open) return close()
+          setCopied(false)
+          setOpen(true)
+        }}
         className="mono-label text-[10px] text-muted underline decoration-white/20 underline-offset-4 transition-colors duration-500 hover:text-white hover:decoration-ice"
       >
         Privacy
@@ -139,23 +146,70 @@ export function PrivacyNote() {
             <p data-privacy-row className="mt-4 text-[12px] leading-[1.6] text-muted">
               It&rsquo;s handled only by the tools the analytics run on: Vercel, Upstash, Microsoft Clarity and Discord.
             </p>
-            <div data-privacy-row className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-3">
-              <button type="button" onClick={() => setTrackingOff(!off)} className="btn btn-dark !h-10 !px-4 !text-[11px]">
-                {off ? 'Turn back on' : 'Turn off analytics'}
-              </button>
-              <a
-                href={`mailto:${profile.email}?subject=${encodeURIComponent('Delete my visit data')}`}
-                className="text-[12.5px] text-soft underline decoration-white/25 underline-offset-4 transition-colors duration-500 hover:text-white hover:decoration-ice"
-              >
-                Ask me to delete yours
-              </a>
-            </div>
-            <p data-privacy-row aria-live="polite" className="mt-3 min-h-[1.2em] text-[12px] text-muted">
-              {off ? 'Off in this browser: nothing more is collected here.' : ''}
-            </p>
+            <Deletion copied={copied} onCopied={() => setCopied(true)} />
           </div>,
           document.body,
         )}
     </>
+  )
+}
+
+/** This browser's visitor id, to copy, and a deletion request that already names it. */
+function Deletion({ copied, onCopied }: { copied: boolean; onCopied: () => void }) {
+  // read when the note opens: by then the visit has started and the id exists
+  const [id] = useState(visitorId)
+  if (trackingOff()) {
+    return (
+      <p data-privacy-row className="mt-5 text-[12.5px] leading-[1.6] text-soft">
+        Analytics are off in this browser, so nothing is collected here.
+      </p>
+    )
+  }
+  const subject = id ? `Delete my visit data (visitor ${id})` : 'Delete my visit data'
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(id)
+    } catch {
+      // clipboard blocked (http / old browser): fall back to a hidden selection
+      const input = document.createElement('input')
+      input.value = id
+      document.body.appendChild(input)
+      input.select()
+      document.execCommand('copy')
+      input.remove()
+    }
+    onCopied()
+  }
+  return (
+    <div data-privacy-row className="mt-5 rounded-[14px] bg-white/[0.04] p-4 ring-1 ring-white/10">
+      <p className="mono-label text-[10px] text-muted">Your visitor ID</p>
+      {id ? (
+        <div className="mt-2 flex items-center gap-2">
+          <code className="font-mono text-[15px] tracking-[0.06em] text-fg">{id}</code>
+          <button
+            type="button"
+            onClick={copy}
+            aria-label={copied ? 'Visitor ID copied' : 'Copy visitor ID'}
+            title={copied ? 'Copied' : 'Copy'}
+            className="grid size-7 place-items-center rounded-full text-muted ring-1 ring-white/10 transition-colors duration-300 hover:text-white"
+          >
+            {copied ? <Check size={13} className="text-ice" /> : <Copy size={13} />}
+          </button>
+        </div>
+      ) : (
+        <p className="mt-2 text-[12.5px] text-soft">None: this browser doesn’t keep one.</p>
+      )}
+      <p className="mt-2 text-[12px] leading-[1.6] text-muted">
+        {id
+          ? 'It stays the same in this browser (a private window or another browser gets its own). Include it in a request and I’ll find and delete your visits.'
+          : 'You can still ask: tell me roughly when you visited.'}
+      </p>
+      <a
+        href={`mailto:${profile.email}?subject=${encodeURIComponent(subject)}`}
+        className="mt-3 inline-block text-[12.5px] text-soft underline decoration-white/25 underline-offset-4 transition-colors duration-500 hover:text-white hover:decoration-ice"
+      >
+        Ask me to delete your data
+      </a>
+    </div>
   )
 }
