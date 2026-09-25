@@ -13,7 +13,7 @@ import { profile } from '../data/resume'
 const collected = [
   'Rough location and IP address',
   'Device, browser, screen size and language',
-  'Time on the site, scrolling and clicks, and replays of the visit',
+  'Pages and files requested, time on the site, scrolling and clicks, and replays of the visit',
 ]
 
 const GAP = 12
@@ -137,7 +137,7 @@ export function PrivacyNote() {
               ))}
             </ul>
             <p data-privacy-row className="mt-4 text-[12px] leading-[1.6] text-muted">
-              It&rsquo;s handled only by the tools the analytics run on: Vercel, Microsoft Clarity and Discord.
+              It&rsquo;s handled only by the tools the analytics run on: Vercel, Upstash, Microsoft Clarity and Discord.
             </p>
             <div data-privacy-row className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-3">
               <button type="button" onClick={() => setTrackingOff(!off)} className="btn btn-dark !h-10 !px-4 !text-[11px]">

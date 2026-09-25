@@ -1,6 +1,7 @@
 import { useEffect, useInsertionEffect } from 'react'
 import { Nav } from './components/Nav'
 import { MailComposer } from './components/MailComposer'
+import { ResumeGate } from './components/ResumeGate'
 import { ScrollBar } from './components/ScrollBar'
 import { ScrollProgress } from './components/ScrollProgress'
 import { Hero } from './sections/Hero'
@@ -90,6 +91,7 @@ export function App() {
       </main>
       <Footer />
       <MailComposer />
+      <ResumeGate />
     </>
   )
 }

@@ -42,6 +42,9 @@ jobs:
       - name: Site checks (SEO tags, structured data, prerendered content, JS budget)
         run: npm run check:site
 
+      - name: Secret scan (repo and built site)
+        run: npm run check:secrets
+
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
 

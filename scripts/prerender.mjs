@@ -12,7 +12,14 @@ const vite = await createServer({ server: { middlewareMode: true }, appType: 'cu
 try {
   const { render, data } = await vite.ssrLoadModule('/src/entry-server.tsx')
   // brand-logo outlines are a third of the markup and mean nothing to a crawler; the app redraws them
-  const markup = render().replace(/ d="[^"]{120,}"/g, '')
+  const email = data.profile.email
+  const markup = render()
+    .replace(/ d="[^"]{120,}"/g, '')
+    // the email address is for people: the crawler copy points to the contact section instead
+    // (most scrapers never run the app, which shows it)
+    .replace(new RegExp(`mailto:${email.replace(/[.+]/g, '\\$&')}[^"]*`, 'g'), '/#contact')
+    .replaceAll(email, 'the email on the site')
+  if (markup.includes('@gmail.com')) throw new Error('prerender: an email address is left in the crawler copy')
 
   const today = new Date().toISOString().slice(0, 10)
   const indexUrl = new URL('index.html', dist)
@@ -58,16 +65,18 @@ function withCsp(html) {
   if (!inline.length) throw new Error("prerender: expected the loader's inline script")
   if (/\son[a-z]+="/i.test(html.slice(0, html.indexOf('<div id="root"')))) throw new Error('prerender: inline event handler in index.html (the CSP would block it)')
   const clarity = 'https://*.clarity.ms https://c.bing.com'
+  // Cloudflare Turnstile, the human check in front of the résumé (src/components/ResumeGate.tsx)
+  const turnstile = 'https://challenges.cloudflare.com'
   const csp = [
     "default-src 'self'",
-    `script-src 'self' ${inline.join(' ')} ${clarity}`,
+    `script-src 'self' ${inline.join(' ')} ${clarity} ${turnstile}`,
     "style-src 'self' 'unsafe-inline'",
     // blob: for the project photos, unscrambled in the page (src/components/VeiledImage.tsx)
     `img-src 'self' data: blob: https://avatars.githubusercontent.com ${clarity}`,
     "font-src 'self' data:",
-    `connect-src 'self' ${clarity}`,
+    `connect-src 'self' ${clarity} ${turnstile}`,
     // 'self': Vercel BotID's deeper check frames its own first-party path (vercel.json)
-    "frame-src 'self' https://*.clarity.ms",
+    `frame-src 'self' https://*.clarity.ms ${turnstile}`,
     "worker-src 'self' blob:",
     "manifest-src 'self'",
     "object-src 'none'",
@@ -109,10 +118,8 @@ function structuredData({ profile, about, skills, languages, achievements, miles
         alternateName: ['Aswin Kumar B S', 'Aswin Kumar BS'],
         url: `${SITE}/`,
         image: profile.avatar,
-        email: `mailto:${profile.email}`,
         jobTitle: profile.roles.join(' & '),
         description: about.text.replace(/\s*\{\w+\}\s*/g, ' ').replace(/\s+/g, ' ').trim(),
-        address: { '@type': 'PostalAddress', addressLocality: 'Coimbatore', addressRegion: 'Tamil Nadu', addressCountry: 'IN' },
         alumniOf: schools.map((name) => ({ '@type': 'EducationalOrganization', name })),
         knowsAbout: [...new Set([...skills.flatMap((s) => s.tools), ...languages])],
         award: achievements.map((a) => `${a.result}, ${a.event} (${a.org.split(' · ')[0]}, ${a.year})`),
@@ -130,11 +137,9 @@ function llms({ profile, about, projects, skills, languages, achievements, highl
     '',
     `> ${profile.roles.join(' and ')}. ${plain(about.text)}`,
     '',
-    `- Website: ${SITE}`,
-    `- Email: ${profile.email}`,
+    `- Website: ${SITE} (contact details are on the site itself)`,
     `- GitHub: ${profile.github}`,
     `- LinkedIn: ${profile.linkedin}`,
-    `- Resume (PDF): ${SITE}${profile.resume}`,
     '',
     '## Open to work',
     '',

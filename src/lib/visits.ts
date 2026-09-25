@@ -1,21 +1,19 @@
 import { trackingOff } from './consent'
 
 /*
- * Visit alerts. Each visit posts one message to a private Discord channel through
- * api/visit.js, which keeps the webhook secret and adds the IP and location. Whenever the
- * visitor hides or leaves the tab, the message is edited with the time they've spent on the
- * page, how far they scrolled and what they clicked.
+ * The page's side of the visit alerts (api/visit.js and server/visits.js have the rest). The
+ * server already logs every request, bots included; this adds what only a running page knows:
+ * screen, clock, whether a real person moved the mouse, tapped or typed, time on the page, how
+ * far they scrolled and what they clicked. Vercel BotID vouches for the browser on the way.
  *
- * A visit lasts while this browser keeps showing up within half an hour: reloads, other tabs
- * and coming straight back all stay on the same message (the server also recognises a browser
- * that lost its storage). New or returning comes from a random id this browser keeps. Vercel
- * BotID vouches for the browser before its first alert. The privacy note's switch, or
- * ?notrack, turns all of it off (src/lib/consent.ts).
+ * A visit lasts while this browser keeps showing up within half an hour: reloads, other tabs and
+ * coming straight back all stay on the same alert. New or returning comes from a random id this
+ * browser keeps. The privacy note's switch, or ?notrack, turns all of it off (src/lib/consent.ts).
  */
 
 const ENDPOINT = '/api/visit'
 const KEY = 'visit'
-/** a visit ends after this long without a sign of life (as in api/visit.js) */
+/** a visit ends after this long without a sign of life (as on the server) */
 const IDLE = 30 * 60_000
 
 interface Visitor {
@@ -29,11 +27,8 @@ interface Visit {
   started: number
   /** its last sign of life */
   last: number
-  /** the Discord message, and the signature that lets this visit edit it */
-  id?: string
-  sig?: string
-  /** the server summarised it instead (a busy spell): no alert of its own to edit */
-  quiet?: boolean
+  /** from the server: lets this visit, and only this one, update its alert */
+  token?: string
   data: Record<string, unknown>
   /** visible time banked so far, across its tabs, in ms */
   active: number
@@ -42,6 +37,8 @@ interface Visit {
   depth: number
   actions: string[]
   loads: number
+  /** a real mouse move, tap or key press has happened (synthetic events don't count) */
+  input: boolean
 }
 
 // storage can be blocked outright (the getter throws) or full: alerts just carry on without it
@@ -81,13 +78,13 @@ function change(fn: (v: Visit) => void) {
 
 /** Starts (or resumes) this visit's alert. Returns a cleanup. */
 export function startVisits() {
-  if (trackingOff() || navigator.webdriver) return () => {}
+  if (trackingOff()) return () => {}
   const stored = read<Visit>(KEY)
   if (stored?.data && Date.now() - stored.last < IDLE) {
     visit = stored
     change((v) => v.loads++)
   } else visit = begin()
-  if (!visit.id && !visit.quiet) void open()
+  void open()
   since = document.hidden ? 0 : performance.now()
 
   const onVisibility = () => {
@@ -110,15 +107,32 @@ export function startVisits() {
   const alive = window.setInterval(() => {
     if (!document.hidden) change(() => {})
   }, 5 * 60_000)
+  const stopWatching = watchInput()
   document.addEventListener('visibilitychange', onVisibility)
   window.addEventListener('pagehide', onLeave)
   window.addEventListener('pageshow', onReturn)
   return () => {
+    stopWatching()
     window.clearInterval(alive)
     document.removeEventListener('visibilitychange', onVisibility)
     window.removeEventListener('pagehide', onLeave)
     window.removeEventListener('pageshow', onReturn)
   }
+}
+
+/** The first real input (not a synthetic event) marks the visit as a person's, straight away. */
+function watchInput() {
+  const events = ['pointermove', 'pointerdown', 'touchstart', 'wheel', 'keydown']
+  const stop = () => events.forEach((t) => window.removeEventListener(t, onInput, true))
+  function onInput(e: Event) {
+    if (!e.isTrusted) return
+    stop()
+    if (visit?.input) return
+    change((v) => (v.input = true))
+    update(true)
+  }
+  if (!visit?.input) events.forEach((t) => window.addEventListener(t, onInput, { capture: true, passive: true }))
+  return stop
 }
 
 /** Feeds the visit's scroll depth and clicks from the site's analytics events. */
@@ -157,7 +171,6 @@ function begin(): Visit {
     started: now,
     last: now,
     data: {
-      started: now,
       visitor: { id: visitor.id, visits: visitor.visits, first: visitor.first, previous: prev?.last ?? 0 },
       page: location.pathname + location.search,
       referrer,
@@ -168,18 +181,21 @@ function begin(): Visit {
       cores: navigator.hardwareConcurrency,
       memory: nav.deviceMemory,
       brave: 'brave' in navigator,
+      // reported, not hidden: the alert says a bot is a bot
+      webdriver: navigator.webdriver === true,
     },
     active: 0,
     sent: -1,
     depth: 0,
     actions: [],
     loads: 1,
+    input: false,
   }
   write(KEY, v)
   return v
 }
 
-/** Posts the visit's first alert and keeps the handle that edits it. */
+/** Tells the server the page has run (each load, so it can count them), and keeps the token it hands back. */
 async function open() {
   if (!visit || opening) return
   opening = true
@@ -187,27 +203,21 @@ async function open() {
     const ch = visit.data.ch ?? (await hints())
     change((v) => (v.data.ch = ch))
     await protect()
-    const body = JSON.stringify({ ...visit.data, type: 'start', loads: visit.loads })
+    const body = JSON.stringify({ ...visit.data, type: 'start' })
     // (BotID fetches its challenge first: never wait on it forever)
     const res = await Promise.race([
       fetch(ENDPOINT, { method: 'POST', body, keepalive: true }),
       new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 15_000)),
     ])
     if (!res?.ok) return
-    if (res.status === 202) return change((v) => (v.quiet = true))
-    const out = (await res.json()) as { id?: unknown; sig?: unknown; loads?: unknown }
-    if (typeof out.id !== 'string' || typeof out.sig !== 'string') return
-    const { id, sig } = out
-    const loads = typeof out.loads === 'number' ? out.loads : 1
-    change((v) => {
-      v.id = id
-      v.sig = sig
-      v.loads = Math.max(v.loads, loads)
-    })
-    // they hid the tab before the message existed: bring it up to date now
-    if (document.hidden) update()
+    const out = (await res.json()) as { token?: unknown }
+    if (typeof out.token !== 'string') return
+    const token = out.token
+    change((v) => (v.token = token))
+    // anything that happened before the token arrived (input, a hidden tab) goes up now
+    if (visit.input || document.hidden) update(true)
   } catch {
-    // offline, blocked, or BotID said no: no alert this time
+    // offline or blocked: this load goes unreported
   } finally {
     opening = false
   }
@@ -231,7 +241,7 @@ async function hints() {
       data.getHighEntropyValues(['model', 'platformVersion']),
       new Promise<undefined>((resolve) => window.setTimeout(resolve, 500)),
     ])
-    return v && { model: v.model, platform: v.platform, platformVersion: v.platformVersion, mobile: v.mobile }
+    return v && { model: v.model, platformVersion: v.platformVersion, mobile: v.mobile }
   } catch {
     return undefined
   }
@@ -245,14 +255,14 @@ function pause() {
   change((v) => (v.active += stretch))
 }
 
-/** Edits the visit's message with its time, depth and clicks so far. */
-function update() {
-  if (!visit?.id || trackingOff()) return
+/** Updates the visit's alert with its time, depth, clicks and input so far. */
+function update(force = false) {
+  if (!visit?.token || trackingOff()) return
   const seconds = Math.round(visit.active / 1000)
-  if (seconds === visit.sent) return
+  if (seconds === visit.sent && !force) return
   change((v) => (v.sent = seconds))
   const v = visit
-  const body = JSON.stringify({ ...v.data, type: 'update', id: v.id, sig: v.sig, seconds, depth: v.depth, actions: v.actions, loads: v.loads })
+  const body = JSON.stringify({ type: 'update', token: v.token, seconds, depth: v.depth, actions: v.actions, loads: v.loads, input: v.input })
   // a beacon survives the page closing; keepalive fetch where beacons aren't available
   if (!navigator.sendBeacon?.(ENDPOINT, body)) void fetch(ENDPOINT, { method: 'POST', body, keepalive: true }).catch(() => undefined)
 }

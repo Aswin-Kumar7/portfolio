@@ -65,6 +65,12 @@ check(!readdirSync(new URL('static/', dist)).some((f) => f.endsWith('.map')), 's
 const shipped = [html, ...readdirSync(new URL('static/', dist)).filter((f) => /\.(js|css)$/.test(f)).map((f) => read(`static/${f}`))]
 check(!shipped.some((s) => /discord(app)?\.com\/api\/webhooks|DISCORD_WEBHOOK/i.test(s)), 'a Discord webhook (or its env var) is in the shipped files')
 check(!readdirSync(new URL('assets/projects/', dist)).some((f) => /\.(png|jpe?g|webp|avif)$/.test(f)), 'project photos must be published scrambled (.bin) via scripts/project-image.py')
+// the request log (middleware.js) knows every root file, and the résumé it rate-limits is really there
+const { KNOWN, RESUME } = await import('../server/visits.js')
+check(existsSync(new URL(RESUME.slice(1), dist)), `the résumé the middleware rate-limits (${RESUME}) isn't in dist`)
+for (const f of readdirSync(dist).filter((n) => statSync(new URL(n, dist)).isFile())) {
+  check(KNOWN.includes(`/${f}`), `/${f} ships at the site's root but server/visits.js doesn't know it (it would be logged as a missing page)`)
+}
 for (const dir of ['assets/', 'assets/projects/']) {
   for (const f of readdirSync(new URL(dir, dist)).filter((n) => /\.(png|jpe?g|webp|avif|bin)$/.test(n))) {
     const kb = statSync(new URL(dir + f, dist)).size / 1024
