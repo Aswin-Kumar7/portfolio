@@ -105,7 +105,7 @@ function structuredData({ profile, about, skills, languages, achievements, miles
         '@type': 'Person',
         '@id': person,
         name: profile.name,
-        alternateName: ['Aswin Kumar', 'Aswin Kumar BS'],
+        alternateName: ['Aswin Kumar B S', 'Aswin Kumar BS'],
         url: `${SITE}/`,
         image: profile.avatar,
         email: `mailto:${profile.email}`,

@@ -44,7 +44,11 @@ jobs:
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
 
-      - name: Lighthouse (SEO, accessibility and best practices must pass; performance is advisory)
+      # CI runners have no GPU: WebGL would run in software and the ray-traced black hole takes minutes
+      # a frame. So Lighthouse runs with WebGL off (the site's CSS fallback) and checks what doesn't
+      # depend on it: SEO, accessibility, best practices. Measure performance on PageSpeed Insights.
+      - name: Lighthouse (SEO, accessibility, best practices)
+        timeout-minutes: 8
         uses: treosh/lighthouse-ci-action@3e7e23fb74242897f95c0ba9cabad3d0227b9b18 # v12.6.2
         with:
           configPath: ./lighthouserc.json

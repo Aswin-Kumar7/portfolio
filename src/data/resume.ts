@@ -6,7 +6,7 @@ import type { Achievement, Highlight, Milestone, OpenToWork, Profile, Project, S
  */
 
 export const profile: Profile = {
-  name: 'Aswin Kumar B S',
+  name: 'Aswin Kumar',
   firstName: 'Aswin',
   roles: ['Full-Stack Developer', 'DevOps Engineer'],
   email: 'aswin.aswin5640@gmail.com',
