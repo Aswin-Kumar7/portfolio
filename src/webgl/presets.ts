@@ -200,15 +200,6 @@ export const presets = {
     vignette: 0.4,
     fallback: 'linear-gradient(180deg, #04142e 0%, #0f4d8f 35%, #26b7ff 47%, #1a4f9a 55%, #020a14 100%)',
   }),
-  coverDawn: define({
-    ...COVER,
-    colors: { zenith: '#243e7c', zenith2: '#3a5ea8', sky: '#8fb2e6', haze: '#e0efff', shade: '#7a9ad6', lit: '#c9e2ff', hi: '#ffffff', base: '#0d1733', sun: '#f4fbff' },
-    vanish: [0.3, 0.44],
-    stretch: 2.8,
-    scale: 0.75,
-    vignette: 0.25,
-    fallback: 'linear-gradient(180deg, #243e7c 0%, #8fb2e6 38%, #e0efff 48%, #5b7fd6 55%, #0d1733 100%)',
-  }),
 } satisfies Record<string, AuroraPreset>
 
 export type AuroraPresetName = keyof typeof presets

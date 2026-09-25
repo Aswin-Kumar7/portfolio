@@ -32,7 +32,12 @@ src, name = pathlib.Path(sys.argv[1]), sys.argv[2]
 out = pathlib.Path(__file__).resolve().parent.parent / 'public' / 'assets' / 'projects'
 out.mkdir(parents=True, exist_ok=True)
 
-im = ImageOps.exif_transpose(Image.open(src)).convert('RGB')  # upright, whatever the camera said
+im = ImageOps.exif_transpose(Image.open(src))  # upright, whatever the camera said
+if im.mode in ('RGBA', 'LA', 'P'):
+    # transparent edges (window captures) sit on the site's dark ink instead of turning a random colour
+    im = im.convert('RGBA')
+    im = Image.alpha_composite(Image.new('RGBA', im.size, (2, 4, 11, 255)), im)
+im = im.convert('RGB')
 widths = [w for w in (640, 960, 1280) if w <= im.width]
 if im.width < 1280:
     widths.append(im.width)

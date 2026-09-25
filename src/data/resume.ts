@@ -111,7 +111,12 @@ export const projects: Project[] = [
       'Supply-chain disruption prediction for Indian retail — supplier-risk scoring, stockout forecasts and prescriptive mitigations from a LangGraph multi-agent system on AWS Bedrock.',
     href: 'https://github.com/Aswin-Kumar7/Supply-Sense-Cognizant',
     hrefLabel: 'View repository',
-    cover: 'coverDawn',
+    image: {
+      name: 'supplysense',
+      widths: [640, 960, 1280],
+      aspect: 1.7049,
+      alt: 'SupplySense dashboard: live supplier risk, stockouts and disruptions for Indian retail',
+    },
     badge: 'National finalist · Cognizant',
   },
   {
