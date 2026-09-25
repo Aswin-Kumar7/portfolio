@@ -1,0 +1,289 @@
+@import 'tailwindcss';
+
+/* Desktop screens under 800px tall (laptops, 125% scaling): layouts compact to fit one screen. */
+@custom-variant short (@media (min-width: 64rem) and (max-height: 50rem));
+
+@theme {
+  --color-ink: #02040b;
+  --color-panel: #070b15;
+  --color-rail: #0f1627;
+  --color-line: #121a2b;
+  --color-fg: #eef4ff;
+  --color-soft: #c7d3e6;
+  --color-muted: #8795ad;
+  --color-dim: #52607a;
+  --color-accent: #2f7dff;
+  --color-ice: #9fd6ff;
+  --color-script: #4f9dff;
+
+  --font-serif: 'Instrument Serif', ui-serif, Georgia, serif;
+  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-script: 'Birthstone', 'Segoe Script', cursive;
+
+  --breakpoint-3xl: 112rem;
+
+  --animate-marquee: marquee var(--marquee-duration, 40s) linear infinite;
+  --animate-scroll-cue: scroll-cue 2.8s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+
+  @keyframes scroll-cue {
+    0% {
+      transform: translateY(-100%);
+    }
+    100% {
+      transform: translateY(200%);
+    }
+  }
+
+  @keyframes marquee {
+    to {
+      transform: translate3d(-50%, 0, 0);
+    }
+  }
+}
+
+@layer base {
+  /* Theme variables: deep-space blues. */
+  :root {
+    color-scheme: dark;
+    --gutter: 12px;
+
+    --accent-rgb: 47 125 255;
+    --accent-hi-rgb: 92 200 255;
+    --accent-deep-rgb: 18 60 190;
+    --tint-rgb: 200 236 255;
+    --ice-rgb: 159 214 255;
+    --scrim-rgb: 2 6 22;
+
+    --glow-grad: linear-gradient(180deg, #1f63ff 0%, #2f7dff 55%, #62c4ff 100%);
+    --orb-grad: radial-gradient(circle at 50% 30%, #8fdcff 0%, #2f7dff 55%, #123cbe 100%);
+    --mono-grad: linear-gradient(145deg, #061437 0%, #1f5fc2 55%, #5cc8ff 100%);
+    --btn-dark-grad: linear-gradient(180deg, #172033 0%, #0c1220 100%);
+    --stage-glow: radial-gradient(60% 90% at 50% 105%, rgb(30 90 220 / 0.4) 0%, rgb(12 40 110 / 0.2) 45%, transparent 75%);
+
+    --on-accent: #020a1f;
+    --active-text: #e3f2ff;
+    --hero-text: #f3f8ff;
+    --dim-word: #28324a;
+    --tool-gray: #5f6d86;
+    --nav-link: #c9d4e6;
+    --nav-fill: rgb(6 14 34 / 0.3);
+    --nav-fill-solid: rgb(4 8 18 / 0.86);
+    --menu-bg: rgb(5 9 20 / 0.95);
+    --circle-bg: rgb(10 17 32 / 0.78);
+    --circle-bg-hover: rgb(14 24 46 / 0.92);
+    --chip-bg: #0f1829;
+    --chip-hover: #0b1322;
+    --bubble-bg: #060b16;
+    --card-border: #141f33;
+  }
+
+  @media (min-width: 640px) {
+    :root {
+      --gutter: 24px;
+    }
+  }
+  @media (min-width: 1024px) {
+    :root {
+      --gutter: 40px;
+    }
+  }
+  @media (min-width: 1280px) {
+    :root {
+      /* Scales with the screen so 1920px+ desktops use their width instead of a boxed column. */
+      --gutter: clamp(52px, 4.4vw, 128px);
+    }
+  }
+
+  html {
+    /* Lenis pauses scrolling during the intro; keep the gutter so nothing shifts sideways. */
+    scrollbar-gutter: stable;
+    /* thin, themed bars for anything else that scrolls */
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--accent-rgb) / 0.55) transparent;
+    scroll-padding-top: 5rem;
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+  /* Mouse / trackpad: the page scrollbar is <ScrollBar>, a themed rail. Touch keeps its overlay bars. */
+  @media (pointer: fine) {
+    html {
+      scrollbar-width: none;
+      scrollbar-gutter: auto;
+    }
+    html::-webkit-scrollbar {
+      display: none;
+    }
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-ink);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: clip;
+  }
+
+  ::selection {
+    background: rgb(var(--accent-rgb) / 0.45);
+    color: #fff;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ice);
+    outline-offset: 3px;
+    border-radius: 999px;
+  }
+
+  img,
+  canvas,
+  svg {
+    display: block;
+  }
+}
+
+@layer components {
+  /* The two vertical guide rails that run down the page. */
+  .rails {
+    margin-inline: var(--gutter);
+    border-inline: 1px solid var(--color-rail);
+  }
+
+  .label-script {
+    font-family: var(--font-script);
+    color: var(--color-script);
+    font-size: clamp(1.6rem, 1.2rem + 1vw, 2.6rem);
+    line-height: 1;
+    letter-spacing: 0.01em;
+  }
+
+  .heading {
+    font-family: var(--font-serif);
+    font-weight: 400;
+    /* bounded by the screen height too, so a title and its content share one screen */
+    font-size: clamp(2.1rem, min(1.2rem + 2.9vw, 7.4svh), 4.4rem);
+    line-height: 1.04;
+    letter-spacing: -0.012em;
+    color: var(--color-fg);
+    text-wrap: balance;
+  }
+
+  .mono-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .grain {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    mix-blend-mode: overlay;
+    opacity: 0.09;
+  }
+
+  /* Legibility over bright skies: a soft pool of shade plus a tight text shadow. */
+  .scrim {
+    background: radial-gradient(closest-side, rgb(var(--scrim-rgb) / 0.62), rgb(var(--scrim-rgb) / 0.28) 55%, transparent);
+  }
+  .text-lift {
+    text-shadow:
+      0 1px 2px rgb(var(--scrim-rgb) / 0.55),
+      0 4px 28px rgb(var(--scrim-rgb) / 0.55);
+  }
+
+  /* ---- buttons (tuned to the design's glossy pills) ---------------------- */
+  .btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    height: 46px;
+    padding-inline: 1.45rem;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--color-fg);
+    transition:
+      transform 0.9s cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 0.9s cubic-bezier(0.22, 1, 0.36, 1),
+      filter 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn:active {
+    transform: translateY(1px);
+  }
+  .btn-icon {
+    width: 46px;
+    padding: 0;
+  }
+
+  .btn-glow {
+    background: var(--glow-grad);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.28),
+      inset 0 -3px 8px rgb(var(--tint-rgb) / 0.28),
+      inset 0 0 0 1px rgb(255 255 255 / 0.12),
+      0 0 22px 2px rgb(var(--accent-rgb) / 0.55),
+      0 8px 30px -6px rgb(var(--accent-deep-rgb) / 0.7);
+  }
+  .btn-glow:hover {
+    filter: brightness(1.08);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.32),
+      inset 0 -3px 8px rgb(var(--tint-rgb) / 0.32),
+      inset 0 0 0 1px rgb(255 255 255 / 0.16),
+      0 0 34px 4px rgb(var(--accent-rgb) / 0.65),
+      0 10px 34px -6px rgb(var(--accent-deep-rgb) / 0.8);
+  }
+
+  .btn-dark {
+    background: var(--btn-dark-grad);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.09),
+      inset 0 0 0 1px rgb(255 255 255 / 0.07),
+      inset 0 -1.5px 0 rgb(var(--accent-rgb) / 0.45),
+      0 10px 24px -12px rgb(var(--accent-rgb) / 0.45);
+  }
+  .btn-dark:hover {
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.12),
+      inset 0 0 0 1px rgb(255 255 255 / 0.1),
+      inset 0 -2px 0 rgb(var(--accent-hi-rgb) / 0.7),
+      0 12px 30px -10px rgb(var(--accent-rgb) / 0.6);
+  }
+
+  .card {
+    background: var(--color-panel);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .mask-fade-x {
+    mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  }
+
+  /*
+   * Masked text reveals. Clipping at the line box also shaves serif and italic ink that
+   * overhangs it (italic lean, negative tracking, tight leading, descenders), so the clip
+   * window is widened with clip-path while overflow stays visible — layout doesn't move.
+   * Tune per element with --mask-top / --mask-x / --mask-bottom.
+   */
+  .text-mask,
+  .split-line-mask,
+  .split-char-mask {
+    overflow: visible !important;
+    clip-path: inset(var(--mask-top, -0.14em) var(--mask-x, -0.3em) var(--mask-bottom, -0.24em));
+  }
+}

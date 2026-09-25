@@ -1,0 +1,15 @@
+# dependencies & build output
+node_modules
+dist
+
+# env & deploy
+.env
+.env.*
+!.env.example
+.vercel
+
+# editor / os / local tooling
+.claude
+.DS_Store
+*.local
+*.log
