@@ -93,6 +93,16 @@ function Entry({ m, latest }: { m: Milestone; latest: boolean }) {
           {m.org}
         </p>
         <p className="mt-1.5 max-w-[68ch] text-[14px] leading-[1.6] text-muted short:leading-[1.5]">{m.body}</p>
+        {m.points && (
+          <ul className="mt-2 max-w-[68ch] space-y-1 short:mt-1.5 short:space-y-0.5">
+            {m.points.map((point) => (
+              <li key={point} className="flex gap-2.5 text-[13.5px] leading-[1.5] text-muted">
+                <span aria-hidden className={cn('mt-[0.6em] size-[4px] shrink-0 rounded-full bg-current opacity-70', k.text)} />
+                {point}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </li>
   )
@@ -130,7 +140,7 @@ export function Journey() {
       <Notes
         items={[
           { text: 'fig. 05 — timeline', className: 'left-[5%] top-[8%]', speed: 0.2 },
-          { text: 'v2021 → v2027', className: 'right-[6%] top-[16%]', speed: -0.25, accent: true },
+          { text: 'v2023 → now', className: 'right-[6%] top-[16%]', speed: -0.25, accent: true },
         ]}
       />
       {/* desktop: one screen — the title on the left, the ledger on the right */}
@@ -142,7 +152,7 @@ export function Journey() {
           title={
             <>
               Where I’ve worked, <br />
-              studied & grown
+              interned & grown
             </>
           }
         />

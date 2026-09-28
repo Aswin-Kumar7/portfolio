@@ -4,8 +4,9 @@ import { claim, hmac, put, run, tag } from './store.js'
 /*
  * Keeping the site's content out of AI training sets, the résumé away from bots, and the site up
  * under floods (middleware.js applies it; api/pass.js hands out the pass):
- * - AI training crawlers (GPTBot, ClaudeBot, Common Crawl...) are refused outright. robots.txt
- *   asks them to stay away; this makes it stick for the ones that don't listen.
+ * - which bots may in at all is server/visits.js's allow-list (policy): people, AIs fetching the
+ *   page for someone, search engines and link previews; everything else is refused. Browsers the
+ *   page caught being automated (server/visits.js, pageStarted) are refused for a day.
  * - every résumé download needs its own Cloudflare Turnstile check (usually invisible): a passed
  *   check buys one ticket, good for a single download, from the same network, within a minute.
  *   Nothing is remembered per browser or session, so a click, a dragged link, a reopened tab or a
@@ -33,35 +34,32 @@ const EVERYONE_MINUTE = 400
 const SHIELD = 10 * 60
 
 // ------------------------------------------------------------------ crawlers
-/** Crawlers that collect pages to train AI models: refused everywhere. */
-const TRAINING =
-  /GPTBot|ClaudeBot|anthropic-ai|CCBot|Bytespider|meta-externalagent|FacebookBot|Amazonbot|GoogleOther|Google-CloudVertexBot|cohere-(ai|training)|Diffbot|Timpibot|ImagesiftBot|omgili|AI2Bot|Ai2Bot-Dolma|img2dataset|PanguBot|Kangaroo Bot|Sidetrade|webzio|ICC-Crawler/i
 /** Search engines: never shown a check they can't solve, asked to come back instead. */
-const SEARCH = /Googlebot|bingbot|Applebot|DuckDuckBot|YandexBot|Baiduspider/i
+const SEARCH = /Googlebot|bingbot|Applebot|DuckDuckBot/i
 
-/** @param {string} ua @returns {string} the crawler's name, if it's one that trains AI */
-export const trainingCrawler = (ua) => ua.match(TRAINING)?.[0] ?? ''
 /** @param {string} ua */
 export const searchEngine = (ua) => SEARCH.test(ua)
 
 // ------------------------------------------------------------------ floods
 /**
- * Counts this request, and says whether this IP, or the whole site, is past normal.
- * @param {string} ip
+ * Counts this request, and says whether this IP, or the whole site, is past normal, and whether
+ * this browser was caught being automated.
+ * @param {string} ip @param {string} key the visitor (IP + browser)
  */
-export async function traffic(ip) {
+export async function traffic(ip, key) {
   const minute = Math.floor(Date.now() / 60_000)
   const t = tag(ip)
-  const [mine, , all, , shield] = await run([
+  const [mine, , all, , shield, flagged] = await run([
     ['INCR', `sh:ip:${t}:${minute}`],
     ['EXPIRE', `sh:ip:${t}:${minute}`, 120],
     ['INCR', `sh:all:${minute}`],
     ['EXPIRE', `sh:all:${minute}`, 120],
     ['GET', 'sh:shield'],
+    ['GET', `sh:bot:${key}`],
   ])
   const tripped = !shield && Number(all) > EVERYONE_MINUTE
   if (tripped) await put('sh:shield', String(Date.now()), SHIELD)
-  return { flooding: Number(mine) > PER_IP_MINUTE, shield: !!shield || tripped, tripped, perMinute: Number(all) || 0 }
+  return { flooding: Number(mine) > PER_IP_MINUTE, shield: !!shield || tripped, tripped, perMinute: Number(all) || 0, flagged: !!flagged }
 }
 
 // ------------------------------------------------------------------ the pass

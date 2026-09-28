@@ -306,6 +306,9 @@ export function clientData(b) {
  * @param {string} botid 'human', 'bot', 'verified:<name>' or 'unchecked'
  */
 export async function pageStarted(w, data, botid) {
+  // the tells no person's browser has: kept out (middleware.js) for a day
+  const [sw, sh] = data.screen
+  if (data.webdriver || botid === 'bot' || !sw || !sh || (sw === 800 && sh === 600)) await put(`sh:bot:${w.key}`, '1', 86_400)
   await note(w, {
     counters: ['loads'],
     edit: (v) => {
@@ -365,6 +368,15 @@ async function render(key) {
   const [hits, id, last] = await run([['HGETALL', `va:hits:${key}:${v.n}`], ['GET', `va:msg:${key}:${v.n}`], ['GET', `va:last:${key}`]])
   const view = withCounts(v, hashOf(hits))
   const what = identify(view)
+  if (typeof id !== 'string' && what.alert === 'digest') {
+    // counted once in today's digest, not an alert of its own (it gets one if it turns out a person)
+    if (!v.digested) {
+      v.digested = true
+      await save(v)
+      await digest({ key }, what.section ?? 'automated', what.label.replace(/^Bot: /, ''))
+    }
+    return
+  }
   if (typeof id === 'string') {
     await discord(`${WEBHOOK}/messages/${id}`, 'PATCH', compose(view, what))
     return
@@ -439,59 +451,87 @@ async function summariseOnce(v, what) {
 
 // ------------------------------------------------------------------ person or bot
 /**
- * Named by their user agent: [pattern, kind, name, what they're doing].
- * @type {[RegExp, Kind, string, string][]}
+ * Named by their user agent: [pattern, kind, name, what they're doing, policy]. The policy is
+ * this site's allow-list: 'ping' lets them in and alerts me (someone asked an AI about me),
+ * 'allow' lets them in quietly (search engines, link previews: counted in the daily digest),
+ * 'block' turns them away (middleware.js answers 403; counted in the digest).
+ * @type {[RegExp, Kind, string, string, 'ping' | 'allow' | 'block'][]}
  */
 const AGENTS = [
-  [/ChatGPT-User/i, 'ai', 'ChatGPT', "fetching the page for someone's chat"],
-  [/OAI-SearchBot/i, 'ai', 'ChatGPT search', 'indexing it for ChatGPT search'],
-  [/GPTBot/i, 'ai', 'OpenAI GPTBot', 'crawling for AI training'],
-  [/Claude-User/i, 'ai', 'Claude', "fetching the page for someone's chat"],
-  [/Claude-SearchBot/i, 'ai', 'Claude search', 'indexing it for Claude search'],
-  [/ClaudeBot|anthropic-ai/i, 'ai', 'Anthropic ClaudeBot', 'crawling for AI training'],
-  [/Perplexity-User/i, 'ai', 'Perplexity', "fetching the page for someone's question"],
-  [/PerplexityBot/i, 'ai', 'PerplexityBot', 'indexing it for Perplexity'],
-  [/MistralAI-User/i, 'ai', 'Mistral Le Chat', "fetching the page for someone's chat"],
-  [/DuckAssistBot/i, 'ai', 'DuckDuckGo DuckAssist', 'fetching it for an AI answer'],
-  [/Google-CloudVertexBot|GoogleOther|Google-Extended/i, 'ai', 'Google AI', 'crawling for Google AI'],
-  [/meta-external(agent|fetcher)/i, 'ai', 'Meta AI', 'crawling for Meta AI'],
-  [/Applebot-Extended/i, 'ai', 'Apple Intelligence', 'crawling for Apple AI'],
-  [/Amazonbot/i, 'ai', 'Amazonbot', 'crawling for Alexa and Amazon AI'],
-  [/Bytespider/i, 'ai', 'ByteDance Bytespider', 'crawling for AI training'],
-  [/CCBot/i, 'ai', 'Common Crawl', 'crawling for an open dataset AI models train on'],
-  [/cohere-(ai|training)/i, 'ai', 'Cohere', 'crawling for AI'],
-  [/YouBot/i, 'ai', 'You.com', 'crawling for AI search'],
-  [/Diffbot|Timpibot|ImagesiftBot|omgili/i, 'ai', 'AI data crawler', 'collecting pages for AI'],
-  [/Googlebot|Google-InspectionTool|Storebot-Google|AdsBot-Google|APIs-Google/i, 'search', 'Googlebot', 'indexing it for Google Search'],
-  [/bingbot|BingPreview|msnbot/i, 'search', 'Bingbot', 'indexing it for Bing and Copilot'],
-  [/Applebot/i, 'search', 'Applebot', 'indexing it for Siri and Spotlight'],
-  [/DuckDuckBot/i, 'search', 'DuckDuckBot', 'indexing it for DuckDuckGo'],
-  [/YandexBot|YandexImages/i, 'search', 'YandexBot', 'indexing it for Yandex'],
-  [/Baiduspider/i, 'search', 'Baiduspider', 'indexing it for Baidu'],
-  [/SeznamBot|Qwantbot|PetalBot|Sogou|Yeti\//i, 'search', 'Search crawler', 'indexing it for a search engine'],
-  [/LinkedInBot/i, 'preview', 'LinkedIn', 'building a link preview'],
-  [/Twitterbot/i, 'preview', 'X (Twitter)', 'building a link preview'],
-  [/facebookexternalhit|FacebookBot|facebookcatalog/i, 'preview', 'Facebook / Instagram', 'building a link preview'],
-  [/WhatsApp/i, 'preview', 'WhatsApp', 'building a link preview'],
-  [/TelegramBot/i, 'preview', 'Telegram', 'building a link preview'],
-  [/Slackbot|Slack-ImgProxy/i, 'preview', 'Slack', 'building a link preview'],
-  [/Discordbot/i, 'preview', 'Discord', 'building a link preview'],
-  [/redditbot|Pinterest|SkypeUriPreview|Iframely|Embedly|vkShare|Snapchat|Google-PageRenderer/i, 'preview', 'Link preview', 'building a link preview'],
-  [/AhrefsBot|AhrefsSiteAudit/i, 'seo', 'Ahrefs', 'crawling for SEO data'],
-  [/SemrushBot|SiteAuditBot/i, 'seo', 'Semrush', 'crawling for SEO data'],
-  [/MJ12bot|DotBot|rogerbot|DataForSeoBot|BLEXBot|Screaming Frog|SERanking/i, 'seo', 'SEO crawler', 'crawling for SEO data'],
-  [/UptimeRobot|Pingdom|StatusCake|BetterStack|Better Uptime|Uptime-Kuma/i, 'monitor', 'Uptime monitor', 'checking the site is up'],
-  [/vercel-(screenshot|favicon)|vercelbot/i, 'monitor', 'Vercel', 'checking a deployment'],
-  [/Lighthouse|PageSpeed|GTmetrix/i, 'monitor', 'Speed test', 'measuring the page'],
-  [/archive\.org_bot|ia_archiver/i, 'crawler', 'Internet Archive', 'archiving the page'],
-  [/zgrab|masscan|Nmap|Nuclei|nikto|sqlmap|WPScan|CensysInspect|Expanse|InternetMeasurement|LeakIX|BitSightBot|Detectify|Qualys|Acunetix|Netsparker|FortiGuard|Fortinet/i, 'scanner', 'Security scanner', 'scanning the site'],
-  [/HeadlessChrome|PhantomJS|Puppeteer|Playwright|Selenium|Cypress/i, 'automation', 'Headless browser', 'automated browsing'],
-  [/curl\/|Wget|python-requests|python-httpx|aiohttp|Python-urllib|Go-http-client|node-fetch|axios|undici|okhttp|Java\/|libwww-perl|PHP\/|Scrapy|HTTPie|PostmanRuntime|insomnia|Deno\/|Bun\//i, 'script', 'Script', 'fetching the page from code'],
-  [/bot\b|crawl|spider|slurp|scrap|fetcher/i, 'crawler', 'Unnamed crawler', 'crawling'],
+  [/ChatGPT-User/i, 'ai', 'ChatGPT', "fetching the page for someone's chat", 'ping'],
+  [/OAI-SearchBot/i, 'ai', 'ChatGPT search', 'indexing it for ChatGPT search', 'allow'],
+  [/GPTBot/i, 'ai', 'OpenAI GPTBot', 'crawling for AI training', 'block'],
+  [/Claude-User/i, 'ai', 'Claude', "fetching the page for someone's chat", 'ping'],
+  [/Claude-SearchBot/i, 'ai', 'Claude search', 'indexing it for Claude search', 'allow'],
+  [/ClaudeBot|anthropic-ai/i, 'ai', 'Anthropic ClaudeBot', 'crawling for AI training', 'block'],
+  [/Perplexity-User/i, 'ai', 'Perplexity', "fetching the page for someone's question", 'ping'],
+  [/PerplexityBot/i, 'ai', 'PerplexityBot', 'indexing it for Perplexity', 'allow'],
+  [/MistralAI-User/i, 'ai', 'Mistral Le Chat', "fetching the page for someone's chat", 'ping'],
+  [/DuckAssistBot/i, 'ai', 'DuckDuckGo DuckAssist', 'fetching it for an AI answer', 'allow'],
+  [/Google-CloudVertexBot|GoogleOther|Google-Extended/i, 'ai', 'Google AI', 'crawling for Google AI', 'block'],
+  [/meta-external(agent|fetcher)/i, 'ai', 'Meta AI', 'crawling for Meta AI', 'block'],
+  [/Applebot-Extended/i, 'ai', 'Apple Intelligence', 'crawling for Apple AI', 'block'],
+  [/Amazonbot/i, 'ai', 'Amazonbot', 'crawling for Alexa and Amazon AI', 'block'],
+  [/Bytespider/i, 'ai', 'ByteDance Bytespider', 'crawling for AI training', 'block'],
+  [/CCBot/i, 'ai', 'Common Crawl', 'crawling for an open dataset AI models train on', 'block'],
+  [/cohere-(ai|training)/i, 'ai', 'Cohere', 'crawling for AI', 'block'],
+  [/YouBot/i, 'ai', 'You.com', 'crawling for AI search', 'block'],
+  [/Diffbot|Timpibot|ImagesiftBot|omgili/i, 'ai', 'AI data crawler', 'collecting pages for AI', 'block'],
+  [/Googlebot|Google-InspectionTool|Storebot-Google|AdsBot-Google|APIs-Google/i, 'search', 'Googlebot', 'indexing it for Google Search', 'allow'],
+  [/bingbot|BingPreview|msnbot/i, 'search', 'Bingbot', 'indexing it for Bing and Copilot', 'allow'],
+  [/Applebot/i, 'search', 'Applebot', 'indexing it for Siri and Spotlight', 'allow'],
+  [/DuckDuckBot/i, 'search', 'DuckDuckBot', 'indexing it for DuckDuckGo', 'allow'],
+  [/YandexBot|YandexImages/i, 'search', 'YandexBot', 'indexing it for Yandex', 'block'],
+  [/Baiduspider/i, 'search', 'Baiduspider', 'indexing it for Baidu', 'block'],
+  [/SeznamBot|Qwantbot|PetalBot|Sogou|Yeti\//i, 'search', 'Search crawler', 'indexing it for a search engine', 'block'],
+  [/LinkedInBot/i, 'preview', 'LinkedIn', 'building a link preview', 'allow'],
+  [/Twitterbot/i, 'preview', 'X (Twitter)', 'building a link preview', 'allow'],
+  [/facebookexternalhit|FacebookBot|facebookcatalog/i, 'preview', 'Facebook / Instagram', 'building a link preview', 'allow'],
+  [/WhatsApp/i, 'preview', 'WhatsApp', 'building a link preview', 'allow'],
+  [/TelegramBot/i, 'preview', 'Telegram', 'building a link preview', 'allow'],
+  [/Slackbot|Slack-ImgProxy/i, 'preview', 'Slack', 'building a link preview', 'allow'],
+  [/Discordbot/i, 'preview', 'Discord', 'building a link preview', 'allow'],
+  [/redditbot|Pinterest|SkypeUriPreview|Iframely|Embedly|vkShare|Snapchat|Google-PageRenderer/i, 'preview', 'Link preview', 'building a link preview', 'allow'],
+  [/AhrefsBot|AhrefsSiteAudit/i, 'seo', 'Ahrefs', 'crawling for SEO data', 'block'],
+  [/SemrushBot|SiteAuditBot/i, 'seo', 'Semrush', 'crawling for SEO data', 'block'],
+  [/MJ12bot|DotBot|rogerbot|DataForSeoBot|BLEXBot|Screaming Frog|SERanking/i, 'seo', 'SEO crawler', 'crawling for SEO data', 'block'],
+  [/UptimeRobot|Pingdom|StatusCake|BetterStack|Better Uptime|Uptime-Kuma/i, 'monitor', 'Uptime monitor', 'checking the site is up', 'block'],
+  [/vercel-(screenshot|favicon)|vercelbot/i, 'monitor', 'Vercel', 'checking a deployment', 'allow'],
+  [/Lighthouse|PageSpeed|GTmetrix/i, 'monitor', 'Speed test', 'measuring the page', 'allow'],
+  [/archive\.org_bot|ia_archiver/i, 'crawler', 'Internet Archive', 'archiving the page', 'block'],
+  [/zgrab|masscan|Nmap|Nuclei|nikto|sqlmap|WPScan|CensysInspect|Expanse|InternetMeasurement|LeakIX|BitSightBot|Detectify|Qualys|Acunetix|Netsparker|FortiGuard|Fortinet/i, 'scanner', 'Security scanner', 'scanning the site', 'block'],
+  [/HeadlessChrome|PhantomJS|Puppeteer|Playwright|Selenium|Cypress/i, 'automation', 'Headless browser', 'automated browsing', 'block'],
+  [/curl\/|Wget|python-requests|python-httpx|aiohttp|Python-urllib|Go-http-client|node-fetch|axios|undici|okhttp|Java\/|libwww-perl|PHP\/|Scrapy|HTTPie|PostmanRuntime|insomnia|Deno\/|Bun\//i, 'script', 'Script', 'fetching the page from code', 'block'],
+  [/bot\b|crawl|spider|slurp|scrap|fetcher|checker|\+https?:\/\//i, 'crawler', 'Unnamed crawler', 'crawling', 'block'],
 ]
 
 /** @typedef {'human' | 'ai' | 'search' | 'preview' | 'seo' | 'monitor' | 'crawler' | 'scanner' | 'script' | 'automation' | 'unknown'} Kind */
-/** @typedef {{ kind: Kind, label: string, why: string[] }} Verdict */
+/**
+ * @typedef {{ kind: Kind, label: string, why: string[], alert?: 'ping' | 'digest', section?: 'allowed' | 'nojs' | 'automated' }} Verdict
+ *   alert: an alert of its own (people, and AIs fetching for someone), or a count in the daily digest
+ */
+
+/**
+ * Whether a request may in at all, decided from the request alone (middleware.js). Allowed: people,
+ * the named bots marked ping or allow, and ChatGPT's signed agent. Blocked: every other named bot,
+ * anything calling itself a bot, requests with no user agent, probes for secrets and admin pages,
+ * and "browsers" missing what every real browser sends (a language, and on Chrome, Edge or
+ * Firefox, its fetch headers).
+ * @param {Who} w @param {string} path @param {string} method
+ * @returns {{ block: false } | { block: true, label: string }}
+ */
+export function policy(w, path, method) {
+  const ua = w.ua
+  if (w.signature && (w.signature === 'chatgpt.com' || w.signature.endsWith('.chatgpt.com') || w.signature.endsWith('.openai.com'))) return { block: false }
+  if (PROBE.test(path) || !/^(GET|HEAD)$/.test(method)) return { block: true, label: 'Scanners (probing for secrets)' }
+  for (const [pattern, , name, , rule] of AGENTS) if (pattern.test(ua)) return rule === 'block' ? { block: true, label: name } : { block: false }
+  if (w.signature) return { block: true, label: 'Signed bots' }
+  if (!ua) return { block: true, label: 'No user agent' }
+  const browserish = /Mozilla\//.test(ua)
+  if (browserish && (!w.lang || (/Chrome\/|Edg\/|Firefox\//.test(ua) && !w.browserHeaders))) return { block: true, label: 'Fake browsers (no browser headers)' }
+  if (!browserish) return { block: true, label: 'Unnamed clients' }
+  return { block: false }
+}
 
 /** A person, a named bot, or a likely bot and why. @param {Record<string, any>} v @returns {Verdict} */
 export function identify(v) {
@@ -499,18 +539,17 @@ export function identify(v) {
   const js = v.js
   if (v.signature) {
     const chatgpt = v.signature === 'chatgpt.com' || v.signature.endsWith('.chatgpt.com') || v.signature.endsWith('.openai.com')
-    return chatgpt
-      ? { kind: 'ai', label: 'Bot: ChatGPT agent', why: ['browsing for someone in ChatGPT agent mode', `signed its requests as ${v.signature}`] }
-      : { kind: 'ai', label: `Bot: signed agent (${v.signature})`, why: [`an AI or automated agent that signed its requests as ${v.signature}`] }
+    if (chatgpt) return { kind: 'ai', label: 'Bot: ChatGPT agent', why: ['browsing for someone in ChatGPT agent mode', `signed its requests as ${v.signature}`], alert: 'ping' }
   }
-  for (const [pattern, kind, name, what] of AGENTS) {
-    if (pattern.test(ua)) return { kind, label: `Bot: ${name}`, why: [what, 'says so in its user agent'] }
+  for (const [pattern, kind, name, what, rule] of AGENTS) {
+    if (pattern.test(ua)) return { kind, label: `Bot: ${name}`, why: [what, 'says so in its user agent'], alert: rule === 'ping' ? 'ping' : 'digest', section: 'allowed' }
   }
+  if (v.signature) return { kind: 'ai', label: `Bot: signed agent (${v.signature})`, why: [`an AI or automated agent that signed its requests as ${v.signature}`], alert: 'digest', section: 'allowed' }
   if (typeof js?.botid === 'string' && js.botid.startsWith('verified:')) {
-    return { kind: 'crawler', label: `Bot: ${js.botid.slice(9)}`, why: ['on Vercel BotID’s list of verified bots'] }
+    return { kind: 'crawler', label: `Bot: ${js.botid.slice(9)}`, why: ['on Vercel BotID’s list of verified bots'], alert: 'digest', section: 'allowed' }
   }
-  if (v.probes) return { kind: 'scanner', label: 'Scanner', why: [`asked for ${v.probes} ${v.probes === 1 ? 'path' : 'paths'} attackers look for (secrets, admin pages)`] }
-  if (!ua) return { kind: 'script', label: 'Bot: no user agent', why: ['sent no user agent at all'] }
+  if (v.probes) return { kind: 'scanner', label: 'Scanner', why: [`asked for ${v.probes} ${v.probes === 1 ? 'path' : 'paths'} attackers look for (secrets, admin pages)`], alert: 'digest', section: 'automated' }
+  if (!ua) return { kind: 'script', label: 'Bot: no user agent', why: ['sent no user agent at all'], alert: 'digest', section: 'automated' }
 
   const tells = []
   if (js?.webdriver) tells.push('driven by automation (navigator.webdriver)')
@@ -522,13 +561,19 @@ export function identify(v) {
   if (!v.browserHeaders && /Mozilla/.test(ua)) tells.push('claims to be a browser but sends none of the headers browsers send')
   if (!v.lang && /Mozilla/.test(ua)) tells.push('asked for no language')
   if (v.missing >= 3) tells.push(`asked for ${v.missing} pages that don't exist`)
-  if (tells.length) return { kind: 'automation', label: 'Likely bot', why: tells }
+  if (tells.length) return { kind: 'automation', label: 'Likely bot', why: tells, alert: 'digest', section: 'automated' }
 
   if (!js) {
-    return { kind: 'unknown', label: 'Not a person so far', why: ['fetched the page without running it: a crawler, a link preview or a text-only reader (people’s browsers run it)'] }
+    return {
+      kind: 'unknown',
+      label: 'Not a person so far',
+      why: ['fetched the page without running it: a crawler, a link preview or a text-only reader (people’s browsers run it)'],
+      alert: 'digest',
+      section: 'nojs',
+    }
   }
-  if (js.input) return { kind: 'human', label: 'Human', why: ['ran the page', js.botid === 'human' ? 'passed Vercel BotID' : 'BotID unchecked', 'real mouse, touch or keyboard input'] }
-  return { kind: 'human', label: 'Probably human', why: ['ran the page', js.botid === 'human' ? 'passed Vercel BotID' : 'BotID unchecked', 'no input yet'] }
+  if (js.input) return { kind: 'human', label: 'Human', why: ['ran the page', js.botid === 'human' ? 'passed Vercel BotID' : 'BotID unchecked', 'real mouse, touch or keyboard input'], alert: 'ping' }
+  return { kind: 'human', label: 'Probably human', why: ['ran the page', js.botid === 'human' ? 'passed Vercel BotID' : 'BotID unchecked', 'no input yet'], alert: 'ping' }
 }
 
 const COLORS = /** @type {Record<Kind, number>} */ ({
@@ -715,6 +760,75 @@ function browser(ua, js) {
     return m[1] ? `${label} ${m[1]}` : label
   }
   return ua ? 'not a browser' : 'unknown'
+}
+
+// ------------------------------------------------------------------ the daily digest
+// Everything that isn't a person or an AI fetching the page for someone: one message a day,
+// kept current, instead of an alert each. Counted once per visitor (IP + browser) per line.
+const DIGEST_EDIT = Number(process.env.VISIT_DIGEST_MS) || 30_000
+const SECTIONS = /** @type {const} */ ({
+  blocked: 'Blocked (403)',
+  allowed: 'Let in quietly',
+  automated: 'Ran the page, looked automated',
+  nojs: 'Fetched the page without running it',
+})
+/** today, on the owner's clock (India), as 2026-09-26 */
+const today = () => new Date(Date.now()).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
+
+/**
+ * Counts a bot in today's digest and keeps the digest message current.
+ * @param {{ key: string, optedOut?: boolean }} who
+ * @param {keyof typeof SECTIONS} section
+ * @param {string} label
+ */
+export async function digest(who, section, label) {
+  if (!READY || who.optedOut) return
+  const day = today()
+  const table = `va:digest:${day}`
+  const field = `${section}:${clean(label, 60)}`
+  const [first] = await run([['SET', `va:digest:${day}:seen:${who.key}:${tag(field)}`, '1', 'EX', 90_000, 'NX']])
+  if (first !== 'OK') return
+  await run([['HINCRBY', table, field, 1], ['EXPIRE', table, 3 * 86_400]])
+  // edits a little apart: a burst of bots becomes one edit
+  if (!(await claim(`va:digest:${day}:tick`, DIGEST_EDIT))) return
+  waitUntil(
+    sleep(DIGEST_EDIT + 100)
+      .then(() => renderDigest(day))
+      .catch((err) => console.warn(`[visit] digest failed: ${String(err).slice(0, 120)}`)),
+  )
+}
+
+/** @param {string} day */
+async function renderDigest(day) {
+  const [raw, id] = await run([['HGETALL', `va:digest:${day}`], ['GET', `va:digest:${day}:id`]])
+  const counts = hashOf(raw)
+  /** @type {{ name: string, value: string }[]} */
+  const fields = []
+  let total = 0
+  for (const [section, title] of Object.entries(SECTIONS)) {
+    const rows = Object.entries(counts)
+      .filter(([f]) => f.startsWith(`${section}:`))
+      .map(([f, n]) => /** @type {[string, number]} */ ([f.slice(section.length + 1), n]))
+      .sort((a, b) => b[1] - a[1])
+    if (!rows.length) continue
+    const n = rows.reduce((sum, [, c]) => sum + c, 0)
+    total += n
+    fields.push({ name: `${title}: ${n}`, value: rows.map(([label, c]) => `${mono(label, 60)} ${c}`).join(' · ').slice(0, 1000) })
+  }
+  if (!fields.length) return
+  const date = new Date(`${day}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  const message = {
+    content: `**Bots today** (${date}): ${total} kept out of your alerts`,
+    embeds: [{ color: 0x95a5a6, fields, footer: { text: 'one line per bot and visitor · updated as they come' } }],
+  }
+  if (typeof id === 'string') {
+    await discord(`${WEBHOOK}/messages/${id}`, 'PATCH', message)
+    return
+  }
+  if (!(await claim(`va:digest:${day}:lock`, 3 * 86_400_000))) return
+  const res = await discord(`${WEBHOOK}?wait=true`, 'POST', message)
+  const posted = res?.ok ? /** @type {{ id?: unknown }} */ (await res.json().catch(() => ({}))).id : null
+  if (typeof posted === 'string') await put(`va:digest:${day}:id`, posted, 3 * 86_400)
 }
 
 // ------------------------------------------------------------------ Discord

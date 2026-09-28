@@ -216,23 +216,25 @@ export const milestones: Milestone[] = [
     when: 'Oct 2025 – Feb 2026',
     org: 'Erthaloka · Remote',
     title: 'Full Stack Development Intern',
-    body: 'Built MERN apps with REST APIs, Google OAuth, secure auth flows, payment gateway integration and a TypeScript-first architecture.',
+    body: 'Built full-stack MERN applications end to end: REST APIs, database integration and responsive interfaces.',
+    points: [
+      'Added Google OAuth sign-in and secure authentication flows',
+      'Integrated a payment gateway into the product',
+      'Set up a TypeScript-first architecture built to scale',
+    ],
     icon: 'code',
-  },
-  {
-    kind: 'education',
-    when: '2024 – 2027',
-    org: 'Kumaraguru College of Technology',
-    title: 'B.E. Computer Science & Engineering',
-    body: 'Studying CSE while shipping hackathon-winning products and publishing IEEE research.',
-    icon: 'graduation',
   },
   {
     kind: 'internship',
     when: 'May 2023',
     org: 'UBX Cloud · On-site',
     title: 'Cloud Computing Intern',
-    body: 'Ran Veeam Backup & Replication and VSPC — backup policies, agents, monitoring and disaster recovery for high availability.',
+    body: 'Configured and managed Veeam Backup & Replication and the Veeam Service Provider Console (VSPC).',
+    points: [
+      'Set up backup policies and configured backup agents',
+      'Handled monitoring and disaster recovery',
+      'Kept systems highly available and their data protected',
+    ],
     icon: 'cloud',
   },
   {
@@ -242,14 +244,6 @@ export const milestones: Milestone[] = [
     title: 'Community Manager',
     body: 'Scaled Discord, LinkedIn and Instagram communities, lifting engagement by 40% with content and event-driven growth.',
     icon: 'users',
-  },
-  {
-    kind: 'education',
-    when: '2021 – 2024',
-    org: 'PSG Polytechnic College',
-    title: 'Diploma in Computer Networking',
-    body: 'Foundations in computer networks, operating systems and infrastructure that still shape how I deploy.',
-    icon: 'network',
   },
 ]
 

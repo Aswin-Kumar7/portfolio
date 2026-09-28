@@ -46,6 +46,9 @@ check(!/duck\.com/.test(html) && !/duck\.com/.test(read('llms.txt')), 'the old d
 
 // ---- crawl files
 check(/Sitemap: https:\/\/aswinkumar\.dev\/sitemap\.xml/.test(read('robots.txt')), 'robots.txt must point at the sitemap')
+// the robots.txt allow-list must never shut out the search engines people find the site through
+const robots = read('robots.txt')
+check(/User-agent: Googlebot[\s\S]*?\nAllow: \//.test(robots) && /User-agent: Bingbot[\s\S]*?\nAllow: \//.test(robots), 'robots.txt must allow Googlebot and Bingbot')
 check(read('sitemap.xml').includes(`<loc>${SITE}/</loc>`), 'sitemap.xml missing the home page')
 check(read('llms.txt').startsWith('# '), 'llms.txt missing')
 for (const file of ['favicon.svg', 'apple-touch-icon.png', 'Aswin-Kumar-BS-Resume.pdf']) check(existsSync(new URL(file, dist)), `${file} missing from dist`)

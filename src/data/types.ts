@@ -89,6 +89,8 @@ export interface Milestone {
   org: string
   title: string
   body: string
+  /** a few specifics under the sentence (the internships) */
+  points?: string[]
   icon: IconKey
 }
 
